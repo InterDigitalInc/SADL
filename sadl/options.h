@@ -60,8 +60,10 @@
 #if DEBUG_COUNTERS
 template<typename T> T my_abs(T x) { return x<T{}?-x:x; }
 #define COUNTERS(X)  ++this->cpt_op; if (my_abs(X) > ComputationType<T>::max) ++this->cpt_overflow
+#define COUNTERS_MAC(X)  ++this->cpt_mac; if (X!=0) ++this->cpt_mac_nz
 #else
 #define COUNTERS(X) (void)X
+#define COUNTERS_MAC(X)  (void)X
 #endif
 
 
@@ -71,12 +73,7 @@ template<typename T> T my_abs(T x) { return x<T{}?-x:x; }
 #endif
 #endif
 
-#ifndef PRIVATE
-#define PRIVATE private
-#endif
-#ifndef PROTECTED
-#define PROTECTED protected
-#endif
+
 #ifndef DUMP_MODEL_EXT
 #define DUMP_MODEL_EXT
 #endif

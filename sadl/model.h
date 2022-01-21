@@ -46,7 +46,7 @@ namespace sadl {
 
 template <typename T>
 class Model {
-  PRIVATE :
+private:
 
   struct LayerData {
     std::unique_ptr<layers::Layer<T>> layer;
@@ -79,8 +79,15 @@ class Model {
   Version version() const { return version_; }
 
 #if DEBUG_COUNTERS
+  struct Stat {
+      uint64_t overflow=0;
+      uint64_t op=0;
+      uint64_t mac=0;
+      uint64_t mac_nz=0;
+  };
   void resetCounters();
-  std::pair<uint64_t, uint64_t> printOverflow(bool printinfo=false) const;
+  Stat printOverflow(bool printinfo=false) const;
+
 #endif
 
   DUMP_MODEL_EXT;
@@ -133,6 +140,12 @@ std::unique_ptr<layers::Layer<T>> createLayer(int32_t id, layers::OperationType:
       break;
     case layers::OperationType::LeakyRelu:
       return std::unique_ptr<layers::Layer<T>>(new layers::LeakyRelu<T>{id, op});
+      break;
+    case layers::OperationType::Transpose:
+      return std::unique_ptr<layers::Layer<T>>(new layers::Transpose<T>{id, op});
+      break;
+    case layers::OperationType::Flatten:
+      return std::unique_ptr<layers::Layer<T>>(new layers::Flatten<T>{id, op});
       break;
     case layers::OperationType::OperationTypeCount:
       break;  // no default on purpose
@@ -256,6 +269,9 @@ bool Model<T>::init(std::vector<Tensor<T>> &in) {
 #if __AVX512F__
   SADL_DBG(std::cout << "[INFO] use SIMD512 code" << std::endl);
 #endif
+#if __FMA__
+  SADL_DBG(std::cout << "[INFO] use FMA" << std::endl);
+#endif
   SADL_DBG(std::cout << "[INFO] use swapped tensor" << std::endl);
 
   if (data_.empty()) {
@@ -307,6 +323,7 @@ bool Model<T>::init(std::vector<Tensor<T>> &in) {
     data_[layer_cnt].inputs.resize(nb_inputs);
     std::vector<layers::OperationType::Type> op_type(nb_inputs);
     for (int inputs_cnt = 0; inputs_cnt < nb_inputs; ++inputs_cnt) {
+       
       typename layers::Layer<T>::Id id_input = data_[layer_cnt].layer->inputsId()[inputs_cnt];
       auto &L = getLayer(id_input);
       if (!L.layer->initDone()) {
@@ -336,7 +353,6 @@ bool Model<T>::init(std::vector<Tensor<T>> &in) {
 
   return true;
 }
-
 
 template <typename T>
 bool Model<T>::apply(std::vector<Tensor<T>> &in) {
@@ -372,6 +388,7 @@ bool Model<T>::apply(std::vector<Tensor<T>> &in) {
     for (int kk = 0; kk < (int)data_[layer_cnt].inputs.size(); ++kk) {
       const int id = data_[layer_cnt].layer->inputsId()[kk];
       const auto &L = getLayer(id);
+      (void)L;
       assert(L.layer->computed_);
     }
 #endif
@@ -403,12 +420,15 @@ bool Model<T>::apply(std::vector<Tensor<T>> &in) {
 }
 
 #if DEBUG_COUNTERS
+
 template <typename T>
-std::pair<uint64_t, uint64_t> Model<T>::printOverflow(bool printinfo) const {
-  std::pair<uint64_t, uint64_t> stat = {0, 0};
+typename Model<T>::Stat Model<T>::printOverflow(bool printinfo) const {
+  Stat stat;
   for (int layer_cnt = 0; layer_cnt < (int)data_.size(); ++layer_cnt) {
-    stat.first += data_[layer_cnt].layer->cpt_overflow;
-    stat.second += data_[layer_cnt].layer->cpt_op;
+    stat.overflow += data_[layer_cnt].layer->cpt_overflow;
+    stat.op += data_[layer_cnt].layer->cpt_op;
+    stat.mac += data_[layer_cnt].layer->cpt_mac;
+    stat.mac_nz += data_[layer_cnt].layer->cpt_mac_nz;
     if (data_[layer_cnt].layer->cpt_overflow > 0) {
       std::cout << "[WARN] layer " << data_[layer_cnt].layer->id() << ' ' << data_[layer_cnt].layer->name() << " [" << opName(data_[layer_cnt].layer->op())
                 << "]: overflow: " << data_[layer_cnt].layer->cpt_overflow << '/' << data_[layer_cnt].layer->cpt_op
@@ -427,6 +447,8 @@ void Model<T>::resetCounters() {
     if (data_[layer_cnt].layer->op() == layers::OperationType::Placeholder) continue;
     data_[layer_cnt].layer->cpt_overflow = 0;
     data_[layer_cnt].layer->cpt_op = 0;
+    data_[layer_cnt].layer->cpt_mac = 0;
+    data_[layer_cnt].layer->cpt_mac_nz = 0;
   }
 }
 #endif
@@ -577,9 +599,11 @@ std::vector<Tensor<T>> Model<T>::getInputsTemplate() const {
     std::cerr<<"[ERROR] not available"<<std::endl;
     return v;
   }
-  for (int layer_cnt = 0; layer_cnt < (int)data_.size() ; ++layer_cnt) {
-    if (data_[layer_cnt].layer->op() == layers::OperationType::Placeholder) {
-      const auto &L=dynamic_cast<const layers::Placeholder<T> &>(*data_[layer_cnt].layer);
+
+  for (auto &id_input: ids_input) {
+      auto &L_tmp = getLayer(id_input);
+      if (L_tmp.layer->op() == layers::OperationType::Placeholder) {
+          const auto &L = dynamic_cast<const layers::Placeholder<T> &>(*L_tmp.layer);
       Tensor<T> t;
       t.resize(L.dims());
       t.quantizer=L.quantizer();

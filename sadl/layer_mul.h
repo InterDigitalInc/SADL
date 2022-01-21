@@ -47,15 +47,17 @@ class Mul : public Layer<T> {
   virtual bool init(const std::vector<Tensor<T>*>& in) override;
   virtual bool mutateInput() const override { return true; }
 
-  PROTECTED : virtual bool loadInternal(std::istream& file, Version v) override;
+protected :
+  virtual bool loadInternal(std::istream& file, Version v) override;
   int q_ = 0;
-  bool apply_same_dim(std::vector<Tensor<T>*>& in);
-  bool apply_singleton(std::vector<Tensor<T>*>& in);
-  bool apply_dim2(std::vector<Tensor<T>*>& in);
-  bool apply_dim3(std::vector<Tensor<T>*>& in);
-  bool apply_dim4(std::vector<Tensor<T>*>& in);
+  template<int NN> bool apply_same_dim(std::vector<Tensor<T>*>& in);
+  template<int NN> bool apply_singleton(std::vector<Tensor<T>*>& in);
+  template<int NN> bool apply_dim2(std::vector<Tensor<T>*>& in);
+  template<int NN> bool apply_dim3(std::vector<Tensor<T>*>& in);
+  template<int NN> bool apply_dim4(std::vector<Tensor<T>*>& in);
 #if __AVX2__
   bool apply_singleton_simd8(std::vector<Tensor<T>*>& in);
+  bool apply_singleton_simd16(std::vector<Tensor<T>*>& in);
 #endif
   DUMP_MODEL_EXT;
 };
@@ -72,76 +74,121 @@ bool Mul<T>::apply(std::vector<Tensor<T>*>& in) {
   assert(out_.quantizer >= 0);
   assert(in[1]->quantizer + q_ >= 0);
 
+  const int last=in[0]->dims().back();
+  if (last%16==0) {
+    constexpr int NN=16;
   if (in[0]->dims() == in[1]->dims()) {  // product wise
-    return apply_same_dim(in);
+      return apply_same_dim<NN>(in);
   } else if (in[1]->size() == 1) {  // broadcast single element
 #if __AVX2__
-    if (std::is_same<T,float>::value && (out_.size()%8==0) )
+      return apply_singleton_simd16(in);
+#endif
+      return apply_singleton<NN>(in);
+    } else if (in[0]->dims().size() == 2) {
+      return apply_dim2<NN>(in);
+    } else if (in[0]->dims().size() == 3) {
+      return apply_dim3<NN>(in);
+    } else if (in[0]->dims().size() == 4) {
+      return apply_dim4<NN>(in);
+    }
+  } else if (last%8==0) {
+    constexpr int NN=8;
+    if (in[0]->dims() == in[1]->dims()) {  // product wise
+      return apply_same_dim<NN>(in);
+    } else if (in[1]->size() == 1) {  // broadcast single element
+#if __AVX2__
      return apply_singleton_simd8(in);
 #endif
-    return apply_singleton(in);
+      return apply_singleton<NN>(in);
  } else if (in[0]->dims().size() == 2) {
-    return apply_dim2(in);
+      return apply_dim2<NN>(in);
  } else if (in[0]->dims().size() == 3) {
-    return apply_dim3(in);
+      return apply_dim3<NN>(in);
  } else if (in[0]->dims().size() == 4) {
-    return apply_dim4(in);
+      return apply_dim4<NN>(in);
 }
+
+  } else {
+    constexpr int NN=1;
+    if (in[0]->dims() == in[1]->dims()) {  // product wise
+      return apply_same_dim<NN>(in);
+    } else if (in[1]->size() == 1) {  // broadcast single element
+      return apply_singleton<NN>(in);
+    } else if (in[0]->dims().size() == 2) {
+      return apply_dim2<NN>(in);
+    } else if (in[0]->dims().size() == 3) {
+      return apply_dim3<NN>(in);
+    } else if (in[0]->dims().size() == 4) {
+      return apply_dim4<NN>(in);
+    }
+  }
+
  return false;
 }
 
 template <typename T>
+template<int NN>
 bool Mul<T>::apply_same_dim(std::vector<Tensor<T>*>& in) {
   const int shift = in[1]->quantizer + q_;
 
-#if __AVX2__ && DEBUG_MODEL
-  std::cout << "[WARN] generic version mul " << in[0]->dims() << ' ' << in[1]->dims() << std::endl;
+#if __AVX2__ && DEBUG_SIMD
+  std::cout << "[WARN] (possible) generic version mul " << in[0]->dims() << ' ' << in[1]->dims() << std::endl;
 #endif  // SIMD
-  for (auto it0 = out_.begin(), it1 = in[1]->begin(); it0 != out_.end(); ++it0, ++it1) {
-    typename ComputationType<T>::type x = *it0;
-    x *= *it1;
+  // for (auto it0 = out_.begin(), it1 = in[1]->begin(); it0 != out_.end(); ++it0, ++it1) {
+  const auto &B=*in[1];
+  const int N=(out_.size()/NN)*NN;
+  for (int k=0;k<N;++k) {
+    typename ComputationType<T>::type x = out_[k];
+    x *= B[k];
+    COUNTERS_MAC(B[k]);
     ComputationType<T>::quantize(x, shift);
     COUNTERS(x);
     SATURATE(x);
-    *it0 = (T)x;
+    out_[k] = (T)x;
   }
   return true;
 }
 
 template <typename T>
+template<int NN>
 bool Mul<T>::apply_singleton(std::vector<Tensor<T>*>& in) {
   const int shift = in[1]->quantizer + q_;
   const Tensor<T>& B = *in[1];
-#if __AVX2__ && DEBUG_MODEL
-  std::cout << "[WARN] generic version mul " << in[0]->dims() << ' ' << in[1]->dims() << std::endl;
+#if __AVX2__ && DEBUG_SIMD
+  std::cout << "[WARN] (possible) generic version mul " << in[0]->dims() << ' ' << in[1]->dims() << std::endl;
 #endif  // SIMD
   const T value{B[0]};
-  for (auto it0 = out_.begin(); it0 != out_.end(); ++it0) {
-    typename ComputationType<T>::type x = *it0;
+  const int N = (out_.size() / NN) * NN;
+//  for (auto it0 = out_.begin(); it0 != out_.end(); ++it0) {
+  for (int k=0;k<N;++k) {
+    typename ComputationType<T>::type x = out_[k];
     x *= value;
+    COUNTERS_MAC(value);
     ComputationType<T>::quantize(x, shift);
     COUNTERS(x);
     SATURATE(x);
-    *it0 = (T)x;
+    out_[k] = (T)x;
   }
   return true;
 }
 
 template <typename T>
+template<int NN>
 bool Mul<T>::apply_dim2(std::vector<Tensor<T>*>& in) {
   const int shift = in[1]->quantizer + q_;
 
-#if __AVX2__ && DEBUG_MODEL
-  std::cout << "[WARN] generic version mul " << in[0]->dims() << ' ' << in[1]->dims() << std::endl;
+#if __AVX2__ && DEBUG_SIMD
+  std::cout << "[WARN] (possible) generic version mul " << in[0]->dims() << ' ' << in[1]->dims() << std::endl;
 #endif  // SIMD
 
   const Tensor<T>& B = *in[1];
   const int N = in[0]->dims()[0];
-  const int H = in[0]->dims()[1];
+  const int H = (in[0]->dims()[1]/NN)*NN;
   for (int n = 0; n < N; ++n)
     for (int i = 0; i < H; ++i) {
       typename ComputationType<T>::type x = out_(n, i);
       x *= B[i];
+      COUNTERS_MAC(B[i]);
       ComputationType<T>::quantize(x, shift);
       COUNTERS(x);
       SATURATE(x);
@@ -151,22 +198,24 @@ bool Mul<T>::apply_dim2(std::vector<Tensor<T>*>& in) {
 }
 
 template <typename T>
+template<int NN>
 bool Mul<T>::apply_dim3(std::vector<Tensor<T>*>& in) {
   const int shift = in[1]->quantizer + q_;
 
-#if __AVX2__ && DEBUG_MODEL
-  std::cout << "[WARN] generic version mul " << in[0]->dims() << ' ' << in[1]->dims() << std::endl;
+#if __AVX2__ && DEBUG_SIMD
+  std::cout << "[WARN] (possible) generic version mul " << in[0]->dims() << ' ' << in[1]->dims() << std::endl;
 #endif  // SIMD
 
   const Tensor<T>& B = *in[1];
   const int N = in[0]->dims()[0];
   const int H = in[0]->dims()[1];
-  const int W = in[0]->dims()[2];
+  const int W = (in[0]->dims()[2]/NN)*NN;
   for (int n = 0; n < N; ++n)
     for (int i = 0; i < H; ++i)
       for (int j = 0; j < W; ++j) {
         typename ComputationType<T>::type x = out_(n, i, j);
         x *= B[j];
+        COUNTERS_MAC(B[j]);
         ComputationType<T>::quantize(x, shift);
         COUNTERS(x);
         SATURATE(x);
@@ -176,11 +225,12 @@ bool Mul<T>::apply_dim3(std::vector<Tensor<T>*>& in) {
 }
 
 template <typename T>
+template<int NN>
 bool Mul<T>::apply_dim4(std::vector<Tensor<T>*>& in) {
   const int shift = in[1]->quantizer + q_;
 
-#if __AVX2__ && DEBUG_MODEL
-  std::cout << "[WARN] generic version mul " << in[0]->dims() << ' ' << in[1]->dims() << std::endl;
+#if __AVX2__ && DEBUG_SIMD
+  std::cout << "[WARN] (possible) generic version mul " << in[0]->dims() << ' ' << in[1]->dims() << std::endl;
 #endif  // SIMD
   assert(in[0]->dims()[0] == 1);
 
@@ -188,13 +238,14 @@ bool Mul<T>::apply_dim4(std::vector<Tensor<T>*>& in) {
   const int N = in[0]->dims()[0];
   const int H = in[0]->dims()[1];
   const int W = in[0]->dims()[2];
-  const int K = in[0]->dims()[3];
+  const int K = (in[0]->dims()[3]/NN)*NN;
   for (int n = 0; n < N; ++n)
     for (int i = 0; i < H; ++i)
       for (int j = 0; j < W; ++j)
         for (int k = 0; k < K; ++k) {
           typename ComputationType<T>::type x = out_(n, i, j, k);
           x *= B[k];
+          COUNTERS_MAC(B[k]);
           ComputationType<T>::quantize(x, shift);
           COUNTERS(x);
           SATURATE(x);
@@ -219,15 +270,22 @@ inline bool Mul<float>::apply_singleton_simd8(std::vector<Tensor<float>*>& in) {
   return true;
 }
 
+template <>
+inline bool Mul<float>::apply_singleton_simd16(std::vector<Tensor<float>*>& in) {
+  return apply_singleton_simd8(in);
+}
 
 
 
 
 template <typename T>
 bool Mul<T>::apply_singleton_simd8(std::vector<Tensor<T>*>& in) {
-  std::cerr << "[ERROR] should not be called apply_singleton_simd8" << std::endl;
-  exit(-1);
-  return false;
+  return apply_singleton<8>(in);
+}
+
+template <typename T>
+bool Mul<T>::apply_singleton_simd16(std::vector<Tensor<T>*>& in) {
+  return apply_singleton<16>(in);
 }
 #endif
 

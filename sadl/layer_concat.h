@@ -45,7 +45,6 @@ class Concat : public Layer<T> {
 
   virtual bool apply(std::vector<Tensor<T> *> &in) override;
   virtual bool init(const std::vector<Tensor<T> *> &in) override;
-  virtual bool mutateInput() const override { return false; }
 
  protected:
   virtual bool loadInternal(std::istream &file,Version v) override;

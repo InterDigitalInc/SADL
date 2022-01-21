@@ -73,9 +73,9 @@ private:
 #include <iostream>
 namespace sadl {
 inline std::ostream &operator<<(std::ostream &out,const Dimensions &d) {
-    out<<"[ ";
+    out<<"( ";
     for(int k=0;k<(int)d.size();++k) out<<d[k]<<' ';
-    out<<']';
+    out<<')';
     return out;
 }
 }

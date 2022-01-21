@@ -1,4 +1,3 @@
-"""A library containing functions for parsing command-line arguments and options.
 /* The copyright in this software is being made available under the BSD
 * License, included below. This software may be subject to other third party
 * and contributor rights, including patent rights, and no such rights are
@@ -30,62 +29,70 @@
 * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 * THE POSSIBILITY OF SUCH DAMAGE.
-"""
+*/
+#pragma once
+#include "layer.h"
 
-import argparse
+namespace sadl {
+namespace layers {
 
-def int_strictly_positive(string):
-    """Converts the string into an integer.
-    
-    Parameters
-    ----------
-    string : str
-        String to be converted into an integer.
-    
-    Returns
-    -------
-    int
-        Integer resulting from the conversion.
-    
-    Raises
-    ------
-    ArgumentTypeError
-        If the string cannot be converted into an integer.
-    ArgumentTypeError
-        If the integer resulting from the conversion is not
-        strictly positive.
-    
-    """
-    try:
-        integer = int(string)
-    except ValueError:
-        raise argparse.ArgumentTypeError('\"{}\" cannot be converted into an integer.'.format(string))
-    if integer <= 0:
-        raise argparse.ArgumentTypeError('\"{}\" is not strictly positive.'.format(integer))
-    else:
-        return integer
+template <typename T>
+class Flatten : public Layer<T> {
+ public:
+  using Layer<T>::Layer;
+  using Layer<T>::out_; // to avoid this->
+  using Layer<T>::initDone_;
 
-def tuple_strings(string):
-    """Converts the string into a tuple of strings.
-    
-    Parameters
-    ----------
-    string : str
-        If `string` contains several non-empty
-        strings separated by a comma, the output
-        tuple contains these strings.
-    
-    Returns
-    -------
-    tuple
-        Non-empty strings.
-    
-    """
-    list_strings = string.split(',')
-    list_cleaned = []
-    for item in list_strings:
-        if item:
-            list_cleaned.append(item)
-    return tuple(list_cleaned)
+  virtual bool apply(std::vector<Tensor<T> *> &in) override;
+  virtual bool init(const std::vector<Tensor<T> *> &in) override;
+  virtual bool mutateInput() const override { return true; }
 
+ protected:
+  virtual bool loadInternal(std::istream &file,Version v) override;
+  int32_t axis_;
+  Dimensions dim_;  // dims after flatten
+  DUMP_MODEL_EXT;
+};
 
+template <typename T>
+bool Flatten<T>::apply(std::vector<Tensor<T> *> &in) {
+  assert(in.size() == 1);
+  assert(in[0]->size() == out_.size());
+  // resize done at init
+  swapData(*in[0], out_);
+
+  return true;
+}
+
+template <typename T>
+bool Flatten<T>::init(const std::vector<Tensor<T> *> &in) {
+  if (in.size() != 1) return false;
+  SADL_DBG(std::cout << "  - " << in[0]->dims() << std::endl);
+  int nb_dim=axis_+1;
+  dim_.resize(nb_dim);
+  for(int k=0;k<axis_;++k) dim_[k]=in[0]->dims()[k];
+  int s=1;
+  for(int k=axis_;k<in[0]->dims().size();++k) s*=in[0]->dims()[k];
+  dim_[axis_]=s;
+  SADL_DBG(std::cout << "  - new shape: "<<dim_ << std::endl);
+  out_.resize(dim_);
+  initDone_ = true;
+  return true;
+}
+
+template <typename T>
+bool Flatten<T>::loadInternal(std::istream &file,Version ) {
+  // load values
+  int32_t x = 0;
+  file.read((char *)&x, sizeof(x));
+  if (x <= 0 || x > Dimensions::MaxDim) {
+    std::cerr << "[ERROR] invalid axis: " << x << std::endl;
+    return false;
+  }
+  axis_=x;
+  SADL_DBG(std::cout << "  - start axis: "<<axis_ << std::endl);
+  return true;
+}
+
+}  // namespace layers
+}  // namespace sadl

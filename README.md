@@ -1,26 +1,77 @@
 # SADL: Small Adhoc Deep-Learning Library
 
 A small library to perform inference in pure C++.
-Models from TF 1.x, TF 2.x and pytorch can be converted to a simple format compatible with the library.
+Models in ONNX format can be converted to a simple format compatible with the library.
+ONNX export feature is supported by all majors framework (TF1.x, TF2.x, PyTorch etc.).
 Inference can be done completely in C++ without any external dependencies.
 
 
 ## Conversion instruction
-Two converters are available:
-- converter/main.py for TensorFlow (1.x or 2.x)
-- converter/main_pytorch.py for pytorch
+Conversion is performed from an ONNX file.
+In the sample directory, 2 examples are given.
+```python
+import numpy as np
+import os
+import tf2onnx
+import onnx
 
-Example of conversion:
-```shell
-cd ../sample
-python ../converter/main.py --input_py examples.tf2 --output tf2.model --output_results tf2.results
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['CUDA_VISIBLE_DEVICES'] = ''  
+tensor_fmt = 'channels_last'
+import tensorflow as tf
+
+s = (16, 16,3)
+inputs = tf.keras.Input(shape=s, name='input0', dtype=tf.float32)
+
+nbf = 8 
+x = tf.keras.layers.Conv2D(nbf, (3,3) , activation='linear',data_format=tensor_fmt, use_bias=True,bias_initializer="glorot_uniform",padding='same')(inputs)
+x = tf.keras.layers.MaxPool2D(2,data_format=tensor_fmt)(x)
+x = tf.keras.layers.Conv2D(nbf, (3,3) , activation='linear',data_format=tensor_fmt, use_bias=True,bias_initializer="glorot_uniform",padding='same')(x)
+
+x0 = tf.keras.layers.Conv2D(nbf, kernel_size=(3, 3) , activation='relu', use_bias=True,data_format=tensor_fmt, padding='same')(x)
+x0 = tf.keras.layers.Conv2D(nbf, kernel_size=(3, 3) , activation='relu', use_bias=True,data_format=tensor_fmt, padding='same')(x0)
+x0 = x0 + x
+x0 = tf.keras.layers.MaxPool2D(2,data_format=tensor_fmt)(x0)
+x0 = tf.keras.layers.Conv2D(2*nbf, kernel_size=(3, 3) , activation='relu', use_bias=True,data_format=tensor_fmt, padding='same')(x0)
+
+x1 = tf.keras.layers.Conv2D(2*nbf, kernel_size=(3, 3) , activation='relu', use_bias=True,data_format=tensor_fmt, padding='same')(x0)
+x1 = tf.keras.layers.Conv2D(2*nbf, kernel_size=(3, 3) , activation='relu', use_bias=True,data_format=tensor_fmt, padding='same')(x1)
+x1 = x1 + x0
+x1 = tf.keras.layers.MaxPool2D(2,data_format=tensor_fmt)(x1)
+x1 = tf.keras.layers.Conv2D(4*nbf, kernel_size=(3, 3) , activation='relu', use_bias=True,data_format=tensor_fmt, padding='same')(x1)
+
+x2 = tf.keras.layers.Reshape((1,4*nbf*16//8*16//8))(x1)
+y = tf.keras.layers.Dense(2)(x2)
+model = tf.keras.Model(inputs=[inputs],outputs=y,name="cat_classifier")
+
+
+X = np.linspace(-1.,1,np.prod(s)).reshape((1,)+s)
+Y = model(X)
+
+model_onnx , _ = tf2onnx.convert.from_keras(model,[tf.TensorSpec(shape=(1,)+s,name="input0")],opset=13)
+onnx.save(model_onnx, "./tf2.onnx")
+print("Output\n",Y)
+print("Model in tf2.onnx")
 ```
-Where examples/tf2.py contains a model and an example of input.
 
-The converter ouputs 2 files:
-- tf2.model: a binary file containing the converted model
-- tf2.results: the results of inference in python using the provided model in ascii format
+Example of conversion
+```shell
+# output a tf2.onnx
+python3 sample/tf2.py 
 
+# convert the onnx to sadl
+python3 converter/main.py --input_onnx tf2.onnx --output tf2.sadl 
+```
+
+In PyTorch the same example is given:
+```shell
+# output a pytorch.onnx
+python3 sample/pytorch.py 
+
+# convert the onnx to sadl
+python3 converter/main.py --input_onnx pytorch.onnx --output pytorch.sadl 
+```
+Please note taht frameworks using the NCHW data layout are changed to a NHWC data layout graph (one just need to adapt the inputs and/or inputs).
 
 ## Build instruction
 The library is header only and does not require to be build.
@@ -33,6 +84,33 @@ An example is given in the sample directory CMakeLists.txt:
 - debug version contains a more debug information to check the model validity, which layers are not SIMD optimized, the number of operations, the number of overflow in case of interger NN
 
 Example of build:
+```c++
+#include <sadl/model.h>
+
+int main() {
+  sadl::Model<float> model;
+  
+  ifstream file("model.sadl", ios::binary);
+  if (!model.load(file)) {
+    cerr << "[ERROR] Unable to read model " << endl;
+    exit(-1);
+  }
+
+  vector<sadl::Tensor<float>> inputs=model.getInputsTemplate();  
+  if (!model.init(inputs)) {
+    cerr << "[ERROR] issue during initialization" << endl;
+    exit(-1);
+  }
+  
+  if (!model.apply(inputs)) {
+    cerr << "[ERROR] issue during inference" << endl;
+    exit(-1);
+  }
+  const int N=model.getIdsOutput().size();
+  for(int i=0;i<N;++i) cout<<"[INFO] output "<<i<<'\n'<<model.result(i)<<endl;
+}
+```
+
 ```shell
 mkdir build
 cd build
@@ -44,25 +122,38 @@ make
 ## Validation instruction
 After converting the model and building the sample program, it can be used to validate the model inference in C++:
 ```shell
-cd sample
-../build/sample/sample_generic tf2.model tf2.results
+build/sample/sample_generic tf2.sadl
 ```
+Output should be the same as the one on the python side.
+
 
 ### Output reading: model loading
 This part shows the model load issues and information.
 ```shell
-[INFO] Model loading information
+[INFO] Model loading
 [INFO] start model loading
 [INFO] read magic SADL0001
 [INFO] Model type: 1
-[INFO] Num layers: 11
+[INFO] Num layers: 38
 [INFO] input id: 0 
-[INFO] output id: 10 
+[INFO] output id: 37 
 [INFO] id: 0 op  Placeholder
   - name: input0
   - inputs: 
-  - dim: [ 1 3 8 8 ]
+  - dim: ( 1 16 16 3 )
   - q: 0
+[INFO] id: 1 op  Const
+  - name: cat_classifier/conv2d/Conv2D/ReadVariableOp:0
+  - inputs: 
+  - tensor: ( 3 3 3 8 )
+  - data: -0.230531 0.0269793 0.181556 -0.0948688  ...
+  - quantizer: 0
+[INFO] id: 2 op  Conv2D
+  - name: cat_classifier/conv2d/BiasAdd:0
+  - inputs: 0 1 
+  - strides: ( 1 1 1 1 )
+  - q: 0
+[INFO] id: 3 op  Const
 ...
 [INFO] end model loading
 ```
@@ -70,30 +161,18 @@ This part shows the model load issues and information.
 ### Output reading: model initialization
 This part shows information or issues during initialization of the model.
 ```shell
-[INFO] Model initilization information
+[INFO] Model initilization
 [INFO] start model init
 [INFO] float mode
 [INFO] use swapped tensor
 [INFO] inserted 0 copy layers
-[INFO] reshape 1 conv2d_w [ 3 3 8 16 ] => [ 3 3 16 8 ]
-[INFO] reshape 6 conv2d_1_w [ 3 3 16 32 ] => [ 3 3 32 16 ]
+...
 [INFO] init layer 0 Placeholder input0
-[INFO] init layer 1 Const conv2d_w
-[INFO] init layer 2 Conv2D conv2d_c
-  - input conv2d: [ 1 3 8 8 ] [ 3 3 16 8 ]
-  - output Conv2D: [ 1 3 8 16 ]
-[INFO] init layer 3 Const conv2d_b
-[INFO] init layer 4 Add conv2d_badd
-  - [ 1 3 8 16 ] [ 16 ]
-[INFO] init layer 5 Relu conv2d_a
-[INFO] init layer 6 Const conv2d_1_w
-[INFO] init layer 7 Conv2D conv2d_1_c
-  - input conv2d: [ 1 3 8 16 ] [ 3 3 32 16 ]
-  - output Conv2D: [ 1 3 8 32 ]
-[INFO] init layer 8 Const conv2d_1_b
-[INFO] init layer 9 Add conv2d_1_badd
-  - [ 1 3 8 32 ] [ 32 ]
-[INFO] init layer 10 Relu conv2d_1_a
+[INFO] init layer 1 Const cat_classifier/conv2d/Conv2D/ReadVariableOp:0
+[INFO] init layer 2 Conv2D cat_classifier/conv2d/BiasAdd:0
+  - input conv2d: ( 1 16 16 3 ) ( 3 3 8 3 )
+  - output Conv2D: ( 1 16 16 8 )
+...
 [INFO] end model init
 ```
 
@@ -104,34 +183,38 @@ This part shows information or issues during inferene of the model.
 [INFO] layer 1 (Const): ok
 [INFO] layer 2 (Conv2D): ok
 [INFO] layer 3 (Const): ok
-[INFO] layer 4 (Add): ok
-[INFO] layer 5 (Relu): ok
+[INFO] layer 4 (BiasAdd): ok
+[INFO] layer 5 (MaxPool): ok
 [INFO] layer 6 (Const): ok
 [INFO] layer 7 (Conv2D): ok
 [INFO] layer 8 (Const): ok
-[INFO] layer 9 (Add): ok
-[INFO] layer 10 (Relu): ok
+...
 ```
 
 ### Output reading: model inference
-This part shows information on the number of operations in each layer (usually MAC but depends on the layer).
+This part shows information on the number of operations in each layer (usually MAC but depends on the layer and the SIMD level).
 ```shell
 [INFO] Complexity assessment
-[INFO] layer 2 conv2d_c [Conv2D]: 384 op
-[INFO] layer 4 conv2d_badd [Add]: 384 op
-[INFO] layer 7 conv2d_1_c [Conv2D]: 768 op
-[INFO] layer 9 conv2d_1_badd [Add]: 768 op
-[INFO] Total number of operations: 2304
-[INFO] ---------------------------------
+[INFO] layer 2 cat_classifier/conv2d/BiasAdd:0 [Conv2D]: 2048 op
+[INFO] layer 4 cat_classifier/conv2d/BiasAdd:0_NOT_IN_GRAPH [BiasAdd]: 2048 op
+[INFO] layer 7 cat_classifier/conv2d_1/BiasAdd:0 [Conv2D]: 512 op
+...
+```
+
+The next part shows the real number of MAC executed by the model:
+```shell
+[INFO] 0 overflow
+[INFO] 7810 OPs
+[INFO] 216160 MACs
+[INFO] 216160 MACs non 0
 ```
 
 ### Output reading: inference error
 This part shows information on the output error compared to the python side inference.
 ```shell
-[INFO] Error assessment
-[INFO] test OK  Qout=0 max: max_error=1.78814e-07 (th=0.001), output: max |x|=0.614462 av|x|=0.0997989
+[INFO] output 0
+[ [[-0.178823	0.101747	  ] ]]
 ```
-In this example, the maximum error was 1.78814e-07 on all samples of the output. Scale of the output is also given as maximum and average.
 
 
 ## License

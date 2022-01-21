@@ -184,6 +184,8 @@ public:
     int quantizer = 0; // for int
     int border_skip = 0;
     static constexpr int kMaxSize = 640000000;
+
+    Data &getData() { return data_; }
 private:
     Dimensions dims_;
     Data data_;
@@ -432,49 +434,61 @@ std::ostream &operator<<(std::ostream &out, const Tensor<T> &t)
 {
     // adhoc
     if (t.dims().size() == 4u) {
-        for (int k = 0; k < t.dims()[3]; ++k) {
-            out << "== Kernel " << k << " ==\n";
-            out << "[\n";
-            for (int d = 0; d < t.dims()[2]; ++d) {
-                out << "[\n";
-                for (int i = 0; i < t.dims()[0]; ++i) {
                     out << "[";
-                    for (int j = 0; j < t.dims()[1]; ++j)
-                        out << t(i, j, d, k) << ' ';
-                    out << "]\n";
+        if (t.dims()[0]>1) out<<'\n';
+        for (int k = 0; k < t.dims()[0]; ++k) {
+            out << " [";
+            if (t.dims()[1]>1) out<<'\n';
+            for (int d = 0; d < t.dims()[1]; ++d) {
+                out << "  [";
+                if (t.dims()[2]>1) out<<'\n';
+                for (int i = 0; i < t.dims()[2]; ++i) {
+                    out << "   [";
+                    for (int j = 0; j < t.dims()[3]; ++j)
+                        out << t(k,d,i, j) << ' ';
+                    out << "   ]";
+                    if (t.dims()[2]>1) out<<'\n';
                 }
-                out << "]\n";
+                out << "  ]";
+                if (t.dims()[1]>1) out<<'\n';
             }
-            out << "]\n";
+            out << " ]";
+            if (t.dims()[0]>1) out<<'\n';
         }
+        out<<"]";
     } else if (t.dims().size() == 3u) {
-        out << "[\n";
+        out << "[";
         for (int d = 0; d < t.dims()[0]; ++d) {
-            out << "[\n";
+            out << " [";
+            if (t.dims()[0]>1) out<<'\n';
             for (int i = 0; i < t.dims()[1]; ++i) {
                 out << "[";
+                if (t.dims()[1]>1) out<<'\n';
                 for (int j = 0; j < t.dims()[2]; ++j)
                     out << t(d, i, j) << '\t';
-                out << "]\n";
+                out << "  ]";
+                if (t.dims()[1]>1) out<<'\n';
             }
-            out << "]\n";
+            out << " ]";
+            if (t.dims()[0]>1) out<<'\n';
         }
-        out << "]\n";
-
+        out << "]";
     } else if (t.dims().size() == 2u) {
-        out << "[\n";
+        out << "[";
         for (int i = 0; i < t.dims()[0]; ++i) {
             out << "[";
+            if (t.dims()[0]>1) out<<'\n';
             for (int j = 0; j < t.dims()[1]; ++j)
                 out << t(i, j) << ' ';
-            out << "]\n";
+            out << " ]";
+            if (t.dims()[0]>1) out<<'\n';
         }
         out << "]\n";
     } else if (t.dims().size() == 1u) {
         out << "[";
         for (int j = 0; j < t.dims()[0]; ++j)
             out << t(j) << ' ';
-        out << "]\n";
+        out << "]";
     } else {
         out << "TODO\n";
     }

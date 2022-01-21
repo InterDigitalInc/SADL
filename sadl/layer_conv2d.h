@@ -52,7 +52,7 @@ class Conv2D : public Layer<T> {
   virtual bool apply(std::vector<Tensor<T>*>& in) override;
   virtual bool init(const std::vector<Tensor<T>*>& in) override;
 
-  PROTECTED :
+ protected:
   virtual bool loadInternal(std::istream& file, Version v) override;
   Dimensions strides_;
   int q_ = 0;
@@ -134,6 +134,8 @@ bool Conv2D<T>::apply_s2(const Tensor<T>& A, const Tensor<T>& kernel) {
   int start_w{half_size - left};
   constexpr int im_nb = 0;
   const int shift = kernel.quantizer + q_;
+  assert(in_H>1);
+  assert(in_W>1);
 
   /*
   `half_size` at 0 means that the spatial dimensions of the
@@ -153,7 +155,9 @@ bool Conv2D<T>::apply_s2(const Tensor<T>& A, const Tensor<T>& kernel) {
             int ki = 0;
             int kj = 0;
             // if (A.in(im_nb, ii, jj, filter_d))
-            { x += (typename ComputationType<T>::type)A(im_nb, ii, jj, filter_d) * kernel(ki, kj, filter_nb, filter_d); }
+            { x += (typename ComputationType<T>::type)A(im_nb, ii, jj, filter_d) * kernel(ki, kj, filter_nb, filter_d);
+            COUNTERS_MAC(kernel(ki, kj, filter_nb, filter_d));
+            }
           }
           ComputationType<T>::quantize(x, shift);
           COUNTERS(x);
@@ -182,6 +186,7 @@ bool Conv2D<T>::apply_s2(const Tensor<T>& A, const Tensor<T>& kernel) {
                   int ki = ihalf_size + filter_i;
                   int kj = ihalf_size + filter_j;
                   x += (typename ComputationType<T>::type)A(im_nb, ii, jj, filter_d) * kernel(ki, kj, filter_nb, filter_d);
+                  COUNTERS_MAC(kernel(ki, kj, filter_nb, filter_d));
                 }
               }
             }
@@ -234,6 +239,7 @@ bool Conv2D<T>::apply_s2(const Tensor<T>& A, const Tensor<T>& kernel) {
                     int ki = ihalf_size + filter_i;
                     int kj = ihalf_size + filter_j;
                     x += (typename ComputationType<T>::type)A(im_nb, ii, jj, filter_d) * kernel(ki, kj, filter_nb, filter_d);
+                    COUNTERS_MAC(kernel(ki, kj, filter_nb, filter_d));
                   }
                 }
               }
@@ -255,6 +261,7 @@ bool Conv2D<T>::apply_s2(const Tensor<T>& A, const Tensor<T>& kernel) {
                     int ki = ihalf_size + filter_i;
                     int kj = ihalf_size + filter_j;
                     x += (typename ComputationType<T>::type)A(im_nb, ii, jj, filter_d) * kernel(ki, kj, filter_nb, filter_d);
+                    COUNTERS_MAC(kernel(ki, kj, filter_nb, filter_d));
                   }
                 }
               }
@@ -279,6 +286,7 @@ bool Conv2D<T>::apply_s2(const Tensor<T>& A, const Tensor<T>& kernel) {
                     int ki = ihalf_size + filter_i;
                     int kj = ihalf_size + filter_j;
                     x += (typename ComputationType<T>::type)A(im_nb, ii, jj, filter_d) * kernel(ki, kj, filter_nb, filter_d);
+                    COUNTERS_MAC(kernel(ki, kj, filter_nb, filter_d));
                   }
                 }
               }
@@ -300,6 +308,7 @@ bool Conv2D<T>::apply_s2(const Tensor<T>& A, const Tensor<T>& kernel) {
                     int ki = ihalf_size + filter_i;
                     int kj = ihalf_size + filter_j;
                     x += (typename ComputationType<T>::type)A(im_nb, ii, jj, filter_d) * kernel(ki, kj, filter_nb, filter_d);
+                    COUNTERS_MAC(kernel(ki, kj, filter_nb, filter_d));
                   }
                 }
               }
@@ -417,6 +426,7 @@ void Conv2D<T>::generic_conv2d_3x3(int nb_filters, int in_H, int in_W, int in_D,
               int ki = half_size + filter_i;
               int kj = half_size + filter_j;
               x += (typename ComputationType<T>::type)A(im_nb, ii, jj, filter_d) * kernel(ki, kj, filter, filter_d);
+              COUNTERS_MAC(kernel(ki, kj, filter, filter_d));
             }
           }
         }
@@ -450,6 +460,7 @@ void Conv2D<T>::generic_conv2d_3x3_s(int nb_filters, int in_H, int in_W, int in_
               int ki = half_size + filter_i;
               int kj = half_size + filter_j;
               x += (typename ComputationType<T>::type)A(im_nb, ii, jj, filter_d) * kernel(ki, kj, filter, filter_d);
+               COUNTERS_MAC(kernel(ki, kj, filter, filter_d));
             }
           }
         }
@@ -483,6 +494,7 @@ void Conv2D<T>::template_conv2d_3x3_s(int nb_filters, int in_H, int in_W, int st
               int ki = half_size + filter_i;
               int kj = half_size + filter_j;
               x += (typename ComputationType<T>::type)A(im_nb, ii, jj, filter_d) * kernel(ki, kj, filter, filter_d);
+              COUNTERS_MAC(kernel(ki, kj, filter, filter_d));
             }
           }
         }

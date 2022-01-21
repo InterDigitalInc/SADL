@@ -49,7 +49,8 @@ public:
     virtual bool mutateInput() const override { return true; }
     int quantizer() const { return q_; }
     Dimensions dims() const { return dims_; }
-PROTECTED:
+
+ protected:
     virtual bool loadInternal(std::istream &file,Version v) override;
     int q_=-1000;    // will override user input
     Dimensions dims_; // can be use as a hint by user

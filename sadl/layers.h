@@ -47,6 +47,8 @@
 #include "layer_concat.h"
 #include "layer_maximum.h"
 #include "layer_leakyrelu.h"
+#include "layer_transpose.h"
+#include "layer_flatten.h"
 
 namespace sadl {
 
@@ -73,6 +75,8 @@ inline std::string opName(const OperationType::Type op) {
       DIRTYCASEPRINT(Concat);
       DIRTYCASEPRINT(Maximum);
       DIRTYCASEPRINT(LeakyRelu);
+      DIRTYCASEPRINT(Transpose);
+      DIRTYCASEPRINT(Flatten);
     default: oss<<"??"; break;
     }
     return oss.str();

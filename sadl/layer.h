@@ -59,7 +59,9 @@ struct OperationType {
     Mul = 12,
     Maximum = 13,
     LeakyRelu = 14,
-    OperationTypeCount = 15
+    Transpose = 15,
+    Flatten = 16,
+    OperationTypeCount = 17
   };
 };
 
@@ -100,9 +102,11 @@ class Layer {
 #endif
 #if DEBUG_COUNTERS
   int64_t cpt_op = 0;
+  int64_t cpt_mac_nz = 0;
+  int64_t cpt_mac = 0;
   int64_t cpt_overflow = 0;
 #endif
-PROTECTED :
+protected :
   bool loadPrefix(std::istream &file, Version v);
   virtual bool loadInternal(std::istream &file, Version v) = 0;
   Tensor<T> out_;

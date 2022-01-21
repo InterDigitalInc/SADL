@@ -32,7 +32,7 @@
 */
 #pragma once
 #include "layer.h"
-#if __AVX2__
+#if __AVX2__ || __SSE4_2__
 #include <immintrin.h>
 #endif
 
@@ -49,9 +49,10 @@ class MatMul : public Layer<T> {
   virtual bool apply(std::vector<Tensor<T> *> &in) override;
   virtual bool init(const std::vector<Tensor<T> *> &in) override;
 
-  PROTECTED : virtual bool loadInternal(std::istream &file, Version v) override;
-  bool apply_dim2(std::vector<Tensor<T> *> &in);
-  bool apply_dim3(std::vector<Tensor<T> *> &in);
+ protected : 
+  virtual bool loadInternal(std::istream &file, Version v) override;
+  template<int NN> bool apply_dim2(std::vector<Tensor<T> *> &in);
+  template<int NN> bool apply_dim3(std::vector<Tensor<T> *> &in);
 #if __AVX2__
   bool apply_dim2_simd8(std::vector<Tensor<T> *> &in);
   bool apply_dim2_simd16(std::vector<Tensor<T> *> &in);
@@ -67,8 +68,8 @@ bool MatMul<T>::apply(std::vector<Tensor<T> *> &in) {
 #define MULT8_DIM2 apply_dim2_simd8
 #define MULT16_DIM2 apply_dim2_simd16
 #else
-#define MULT8_DIM2 apply_dim2
-#define MULT16_DIM2 apply_dim2
+   #define MULT8_DIM2  apply_dim2<8>
+   #define MULT16_DIM2 apply_dim2<16>
 #endif
   const Tensor<T> &A{*in[0]};
   const Tensor<T> &B{*in[1]};
@@ -91,10 +92,10 @@ bool MatMul<T>::apply(std::vector<Tensor<T> *> &in) {
       else if (H % 8 == 0)
         return MULT8_DIM2(in);
       else
-        return apply_dim2(in);
+        return apply_dim2<1>(in);
       break;
     case 3:
-      return apply_dim3(in);
+      return apply_dim3<1>(in);
       break;
     default:
       std::cerr << "Logical error MatMul::apply(std::vector<Tensor<T> *> &in)" << A.dims() << ' ' << B.dims() << std::endl;
@@ -209,28 +210,28 @@ inline bool MatMul<int16_t>::apply_dim2_simd16(std::vector<Tensor<int16_t> *> &i
 // to do
 template <typename T>
 bool MatMul<T>::apply_dim2_simd8(std::vector<Tensor<T> *> &in) {
-  return apply_dim2(in);
+  return apply_dim2<8>(in);
 }
 
 // to do
 template <typename T>
 bool MatMul<T>::apply_dim2_simd16(std::vector<Tensor<T> *> &in) {
-  return apply_dim2(in);
+  return apply_dim2<16>(in);
 }
-
 #endif
 
 template <typename T>
+template<int NN>
 bool MatMul<T>::apply_dim2(std::vector<Tensor<T> *> &in) {
   const Tensor<T> &A{*in[0]};
   const Tensor<T> &B{*in[1]};
   const int shift{in[1]->quantizer + q_};
   const int last = A.dims().size() - 1;
   const int N{A.dims()[last - 1]};
-  const int H{A.dims()[last]};
+  const int H{(A.dims()[last]/NN)*NN};
   const int R{B.dims().back()};
 #if __AVX2__ && DEBUG_SIMD
-  std::cout << "\n[WARN] generic version matmul dim2 " << H<< std::endl;
+  std::cout << "\n[WARN] generic version matmul dim2 " << A.dims()<< ' '<< B.dims() << "(H="<<H<<"):"<<std::endl;
 #endif  // SIMD
   if (A.dims().size() == 2) {
     for (int b = 0; b < N; ++b) {
@@ -240,6 +241,7 @@ bool MatMul<T>::apply_dim2(std::vector<Tensor<T> *> &in) {
         const T *bptr = B.data() + t * H;  // T * i + t  (i, t); => B[t*H+i] if transposed
         for (int i = 0; i < H; ++i) {
           x += (typename ComputationType<T>::type)aptr[i] * bptr[i];  // A(b,i)*B(i, t);
+          COUNTERS_MAC(bptr[i]);
         }
         ComputationType<T>::quantize(x, shift);
         COUNTERS(x);
@@ -255,6 +257,7 @@ bool MatMul<T>::apply_dim2(std::vector<Tensor<T> *> &in) {
         const T *bptr = B.data() + t * H;  // T * i + t  (i, t); => B[t*H+i] if transposed
         for (int i = 0; i < H; ++i) {
           x += (typename ComputationType<T>::type)aptr[i] * bptr[i];  // A(0,b,i)*B(i, t);
+          COUNTERS_MAC(bptr[i]);
         }
         ComputationType<T>::quantize(x, shift);
         COUNTERS(x);
@@ -267,6 +270,7 @@ bool MatMul<T>::apply_dim2(std::vector<Tensor<T> *> &in) {
 }
 
 template <typename T>
+template<int NN>
 bool MatMul<T>::apply_dim3(std::vector<Tensor<T> *> &in) {
   const Tensor<T> &A{*in[0]};
   const Tensor<T> &B{*in[1]};
@@ -274,7 +278,7 @@ bool MatMul<T>::apply_dim3(std::vector<Tensor<T> *> &in) {
   const int last = A.dims().size() - 1;
   const int N{A.dims()[last - 2]};
   const int H{A.dims()[last - 1]};
-  const int W{A.dims()[last]};
+  const int W{(A.dims()[last]/NN)*NN};
   const int R{B.dims().back()};
 #if __AVX2__ && DEBUG_SIMD
   std::cout << "\n[WARN] generic version matmul dim3" << std::endl;
@@ -286,6 +290,7 @@ bool MatMul<T>::apply_dim3(std::vector<Tensor<T> *> &in) {
           typename ComputationType<T>::type x = 0;
           for (int j = 0; j < W; ++j) {
             x += (typename ComputationType<T>::type)A(b, i, j) * B(b, j, t);
+            COUNTERS_MAC(B(b, j, t));
           }
           ComputationType<T>::quantize(x, shift);
           COUNTERS(x);
@@ -301,6 +306,7 @@ bool MatMul<T>::apply_dim3(std::vector<Tensor<T> *> &in) {
           typename ComputationType<T>::type x = 0;
           for (int j = 0; j < W; ++j) {
             x += (typename ComputationType<T>::type)A(0, b, i, j) * B(b, j, t);
+            COUNTERS_MAC(B(b, j, t));
           }
           ComputationType<T>::quantize(x, shift);
           COUNTERS(x);

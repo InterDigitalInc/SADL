@@ -108,7 +108,7 @@ bool Add<T>::apply(std::vector<Tensor<T> *> &in) {
         for (int n = 0; n < N; ++n)
           for (int i = 0; i < H; ++i)
             for (int j = 0; j < W; ++j) {
-              typename ComputationType<T>::type z = out_(n, i);
+              typename ComputationType<T>::type z = out_(n, i, j);
               ComputationType<T>::shift_left(z, -shift);
               z += B[j];
               COUNTERS(z);
@@ -182,7 +182,7 @@ bool Add<T>::apply(std::vector<Tensor<T> *> &in) {
         for (int n = 0; n < N; ++n)
           for (int i = 0; i < H; ++i)
             for (int j = 0; j < W; ++j) {
-              typename ComputationType<T>::type z = out_(n, i);
+              typename ComputationType<T>::type z = out_(n, i, j);
               ComputationType<T>::quantize(z, shift);
               z += B[j];
               COUNTERS(z);
