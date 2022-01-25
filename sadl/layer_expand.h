@@ -37,7 +37,7 @@ namespace sadl {
 namespace layers {
 
 template <typename T>
-class Transpose : public Layer<T> {
+class Expand : public Layer<T> {
  public:
   using Layer<T>::Layer;
   using Layer<T>::out_; // to avoid this->
@@ -45,53 +45,39 @@ class Transpose : public Layer<T> {
 
   virtual bool apply(std::vector<Tensor<T> *> &in) override;
   virtual bool init(const std::vector<Tensor<T> *> &in) override;
-  virtual bool mutateInput() const override { return true; }
 
  protected:
   virtual bool loadInternal(std::istream &file,Version v) override;
-  bool nhwc2nchw_=false;
-  std::array<int,Dimensions::MaxDim> perm_;
 };
 
 // assume data in in[0] and shape in in[1]
 template <typename T>
-bool Transpose<T>::apply(std::vector<Tensor<T> *> &in) {
-  // NHWC to NCHW
-  Dimensions d = out_.dims(); // {in[0]->dims()[0], in[0]->dims()[3], in[0]->dims()[1], in[0]->dims()[2]};
-  if (nhwc2nchw_) {
-    if ((d[3] == 1 || d[1] * d[2] == 1)) {
-    swapData(*in[0], out_);
-    } else
-   // d[0]=1 for (int i = 0; i < d[0]; ++i) {
-      for (int j = 0; j < d[1]; ++j) { // was l
-        for (int k = 0; k < d[2]; ++k) { // was j
-          for (int l = 0; l < d[3]; ++l) { // was k
-            out_.data()[d[3] * (d[2] * j + k) + l] = in[0]->data()[d[1] * (d[3] * k + l) + j];
+bool Expand<T>::apply(std::vector<Tensor<T> *> &in) {
+  assert(in.size() == 2);
+  // second layer is reshape prms, already process in init
+  if (in[0]->size() == 1) {  // broadcast
+    const auto v = (*in[0])[0];
+    fill(out_.begin(), out_.end(), v);
+  } else {
+    // quick hack: to improve
+    if (out_.dims().size()==4) {
+      const Dimensions d = out_.dims();
+      assert(d[0] == 1);
+      assert(in[0]->dims()[3] == 1);
+      for (int i = 0; i < 1 /*d[0]*/; ++i) {
+        for (int j = 0; j < d[1]; ++j) {
+          for (int k = 0; k < d[2]; ++k) {
+            const auto offset_in0 = (d[2] * (d[1] * i + j) + k);
+            const auto offset_in1 = d[3] * offset_in0;
+            const auto v = in[0]->data()[offset_in0];
+            for (int l = 0; l < out_.dims()[3]; ++l) {
+              out_.data()[offset_in1 + l] = v;
+            }
           }
         }
       }
-   // }
-  } else {  // general case: not optimized
-    const auto & A=*in[0];
-    Dimensions Ad=A.dims();
-    if      (d.size()==1)  swapData(*in[0], out_);
-    else if (d.size()==6) { // very naive version
-      std::array<int,6> index;
-      std::array<int *,6> index_mapped;
-      for(int k=0;k<6;++k) index_mapped[k]=&index[perm_[k]];
-
-      for(index[0]=0;index[0]<Ad[0];++index[0])
-        for(index[1]=0;index[1]<Ad[1];++index[1])
-          for(index[2]=0;index[2]<Ad[2];++index[2])
-            for(index[3]=0;index[3]<Ad[3];++index[3])
-              for(index[4]=0;index[4]<Ad[4];++index[4])
-                for(index[5]=0;index[5]<Ad[5];++index[5]) {
-                  auto offsetA=Ad[5] * (Ad[4] * (Ad[3] * ( Ad[2] * ( Ad[1] * index[0] + index[1]) + index[2]) + index[3] ) + index[4] ) + index[5];
-                  auto offsetOut=d[5] * (d[4] * (d[3] * ( d[2] * ( d[1] * *index_mapped[0] + *index_mapped[1]) + *index_mapped[2]) + *index_mapped[3] ) + *index_mapped[4] ) + *index_mapped[5];
-                  out_[offsetOut]=A[offsetA];
-                }
     } else {
-      std::cerr << "\nTODO Transpose case: " << in[0]->dims() << " => " << out_.dims() << std::endl;
+      SADL_DBG(std::cout << "TODO" << std::endl);
       exit(-1);
     }
   }
@@ -99,39 +85,39 @@ bool Transpose<T>::apply(std::vector<Tensor<T> *> &in) {
 }
 
 template <typename T>
-bool Transpose<T>::init(const std::vector<Tensor<T> *> &in) {
-  //  Only use transpose for Pytorch: NHWC => NCHW
+bool Expand<T>::init(const std::vector<Tensor<T> *> &in) {
   if (in.size() != 2) return false;
   SADL_DBG(std::cout << "  - " << in[0]->dims() << ' ' << in[1]->dims() << std::endl);
   // second layer is always reshape prms: value as int inside the tensor
   if (in[1]->dims().size() != 1) return false;
   Dimensions dim;
   dim.resize(in[1]->size());
-  for (int k = 0; k < in[1]->size(); ++k) {
-    if ((*in[1])(k) == -1) {  // keep dim of org
-      dim[k] = in[0]->dims()[k];
-      perm_[k]=k;
+  copy(in[1]->begin(),in[1]->end(),dim.begin());
+  // current restriction: broadcast only scalar to shape or expand last channel =1 of a tensor of dim 4
+  bool ok=false;
+  if (in[0]->size() == 1) {
+    ok = true;
+  } else {
+    if (in[0]->dims().size() != dim.size() || dim.size()!=4) {
+      ok = false;
     } else {
-      dim[k] = in[0]->dims()[(int)((*in[1])(k))];
-      perm_[k]=(int)((*in[1])(k));
+      ok=(in[0]->dims().back()==1);
+      for (int k = 0; k < dim.size() - 1; ++k)
+        if (in[0]->dims()[k]!=dim[k]) ok=false;
     }
   }
-  if (dim.nbElements() != in[0]->dims().nbElements()) {
-    std::cerr << "[ERROR] transpose incompatible sizes shuffle=[" << dim << "] input shape: " << in[0]->dims() << std::endl;
-    return false;
-  }
-  SADL_DBG(std::cout << "  - new shape: "<<dim << std::endl);
-  // currently only support NHWCtoNCHW
-  if (dim.size() == 4 && (dim[0] == in[0]->dims()[0] || dim[1] == in[0]->dims()[3] || dim[2] == in[0]->dims()[1] || dim[3] == in[0]->dims()[2])) {
-    nhwc2nchw_ = true;
+  if (!ok) {
+     std::cerr << "[ERROR] value to expand not supported " << in[0]->dims() << " expand to " << dim << std::endl;
+     return false;
   }
   out_.resize(dim);
+  SADL_DBG(std::cout << "  - new shape: "<<dim << std::endl);
   initDone_ = true;
   return true;
 }
 
 template <typename T>
-bool Transpose<T>::loadInternal(std::istream &,Version ) {
+bool Expand<T>::loadInternal(std::istream &,Version ) {
   return true;
 }
 

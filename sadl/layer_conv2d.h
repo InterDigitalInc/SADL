@@ -55,6 +55,7 @@ class Conv2D : public Layer<T> {
  protected:
   virtual bool loadInternal(std::istream& file, Version v) override;
   Dimensions strides_;
+  Dimensions pads_;
   int q_ = 0;
 
   template <int s_h, int s_w>
@@ -124,12 +125,8 @@ bool Conv2D<T>::apply_s2(const Tensor<T>& A, const Tensor<T>& kernel) {
   const int in_D{A.dims()[3]};
   const int nb_filters{kernel.dims()[2]};
   const int half_size{kernel.dims()[0] / 2};
-  // int s_h{strides_[1]};
-  // int s_w{strides_[2]};
-  int out_h = (int)ceil(float(in_H) / float(s_h));
-  int out_w = (int)ceil(float(in_W) / float(s_w));
-  int top{((out_h - 1) * s_h + kernel.dims()[0] - in_H) / 2};
-  int left{((out_w - 1) * s_w + kernel.dims()[0] - in_W) / 2};
+  const int top{pads_[0]};
+  const int left{pads_[1]};
   int start_h{half_size - top};
   int start_w{half_size - left};
   constexpr int im_nb = 0;
@@ -143,7 +140,7 @@ bool Conv2D<T>::apply_s2(const Tensor<T>& A, const Tensor<T>& kernel) {
   */
   if (half_size == 0) {  // ~1
 #if DEBUG_SIMD && __AVX2__
-    std::cout << "\n[WARN] generic version conv1x1 D=" << in_D << " s=[" << s_w << ' ' << s_h << "]" << std::endl;
+    std::cout << "\n[WARN] generic version conv1x1 D=" << in_D << " s=[" << s_w << ' ' << s_h << "] " << in_H<<','<<in_W<<std::endl;
 #endif
     for (int filter_nb = 0; filter_nb < nb_filters; ++filter_nb) {
       for (int im_i = start_h; im_i < in_H; im_i += s_h) {
@@ -397,7 +394,19 @@ bool Conv2D<T>::loadInternal(std::istream& file, Version v) {
     std::cerr << "[ERROR] not1 or 2: to check " << strides_ << std::endl;
   }
   SADL_DBG(std::cout << "  - strides: " << strides_ << std::endl);
-  if (v == Version::sadl01) {
+
+  file.read((char*)&x, sizeof(x));
+  if (x <= 0 || x > Dimensions::MaxDim) {
+    std::cerr << "[ERROR] invalid nb of dimensions: " << x << std::endl;
+    return false;
+  }
+  pads_.resize(x);
+  for (int k = 0; k < pads_.size(); ++k) {
+    file.read((char*)&x, sizeof(x));
+    pads_[k] = x;
+  }
+  SADL_DBG(std::cout << "  - pads: " << pads_ << std::endl);
+  {
     file.read((char*)&q_, sizeof(q_));
     SADL_DBG(std::cout << "  - q: " << q_ << std::endl);
   }
@@ -409,7 +418,7 @@ template <typename T>
 void Conv2D<T>::generic_conv2d_3x3(int nb_filters, int in_H, int in_W, int in_D, int start_h, int start_w, int s_h, int s_w, Tensor<T>& out_, const Tensor<T>& A,
                                    const Tensor<T>& kernel) {
 #if DEBUG_SIMD && __AVX2__
-  std::cout << "\n[WARN] generic version conv 3x3 D=" << in_D << " s=[" << s_w << ' ' << s_h << "]" << std::endl;
+  std::cout << "\n[WARN] generic version conv 3x3 D=" << in_D << " s=[" << s_w << ' ' << s_h << "] " << in_H<<','<<in_W<<std::endl;
 #endif
   constexpr int im_nb = 0;
   constexpr int half_size = 1;
@@ -443,7 +452,7 @@ template <typename T>
 template <int s_h, int s_w>
 void Conv2D<T>::generic_conv2d_3x3_s(int nb_filters, int in_H, int in_W, int in_D, int start_h, int start_w, Tensor<T>& out_, const Tensor<T>& A, const Tensor<T>& kernel) {
 #if DEBUG_SIMD && __AVX2__
-  std::cout << "\n[WARN] generic version conv 3x3 D=" << in_D << " s=[" << s_w << ' ' << s_h << "] (T)" << std::endl;
+  std::cout << "\n[WARN] generic version conv 3x3 D=" << in_D << " s=[" << s_w << ' ' << s_h << "]  " << in_H<<','<<in_W<<std::endl;
 #endif
   constexpr int im_nb = 0;
   constexpr int half_size = 1;
@@ -477,7 +486,7 @@ template <typename T>
 template <int in_D, int s_h, int s_w>
 void Conv2D<T>::template_conv2d_3x3_s(int nb_filters, int in_H, int in_W, int start_h, int start_w, Tensor<T>& out_, const Tensor<T>& A, const Tensor<T>& kernel) {
 #if DEBUG_SIMD && __AVX2__
-  std::cout << "\n[WARN] generic version conv 3x3 D=" << in_D << " (T) s=[" << s_w << ' ' << s_h << "] (T)" << std::endl;
+  std::cout << "\n[WARN] generic version conv 3x3 D=" << in_D << " (T) s=[" << s_w << ' ' << s_h << "]  " << in_H<<','<<in_W<<std::endl;
 #endif
   constexpr int im_nb = 0;
   constexpr int half_size = 1;

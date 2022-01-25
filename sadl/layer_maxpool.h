@@ -50,6 +50,7 @@ class MaxPool : public Layer<T> {
   virtual bool loadInternal(std::istream &file,Version v) override;
   Dimensions kernel_;
   Dimensions strides_;
+  Dimensions pads_;
   DUMP_MODEL_EXT;
 };
 
@@ -148,8 +149,9 @@ bool MaxPool<T>::init(const std::vector<Tensor<T> *> &in) {
 
   dim.resize(4);
   dim[0] = in[0]->dims()[0];
-  dim[1] = (int)ceil(in[0]->dims()[1] / (float)strides_[1]);
-  dim[2] = (int)ceil(in[0]->dims()[2] / (float)strides_[2]);
+  constexpr int dilatation=1;
+  dim[1] = (int)floor((in[0]->dims()[1] +pads_[0] +pads_[2]- ((kernel_[1]-1)*dilatation +1)) / (float)strides_[1]+1);
+  dim[2] = (int)floor((in[0]->dims()[2] +pads_[1] +pads_[3]- ((kernel_[2]-1)*dilatation +1)) / (float)strides_[2]+1);
   dim[3] = in[0]->dims()[3];
 
   out_.resize(dim);
@@ -219,6 +221,17 @@ bool MaxPool<T>::loadInternal(std::istream &file,Version v) {
     std::cerr << "[ERROR] invalid kernel H V: " << kernel_ << std::endl;
     return false;
   }
+  file.read((char *)&x, sizeof(x));
+  if (x <= 0 || x > Dimensions::MaxDim) {
+    std::cerr << "[ERROR] invalid nb of dimensions: " << x << std::endl;
+    return false;
+  }
+  pads_.resize(x);
+  for (int k = 0; k < pads_.size(); ++k) {
+    file.read((char *)&x, sizeof(x));
+    pads_[k] = x;
+  }
+  SADL_DBG(std::cout << "  - pads: " << pads_ << std::endl);
   return true;
 }
 

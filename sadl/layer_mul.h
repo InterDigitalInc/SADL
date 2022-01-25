@@ -130,9 +130,8 @@ template <typename T>
 template<int NN>
 bool Mul<T>::apply_same_dim(std::vector<Tensor<T>*>& in) {
   const int shift = in[1]->quantizer + q_;
-
 #if __AVX2__ && DEBUG_SIMD
-  std::cout << "[WARN] (possible) generic version mul " << in[0]->dims() << ' ' << in[1]->dims() << std::endl;
+  std::cout << "\n[WARN] (possible) generic version mul " << in[0]->dims() << ' ' << in[1]->dims() << std::endl;
 #endif  // SIMD
   // for (auto it0 = out_.begin(), it1 = in[1]->begin(); it0 != out_.end(); ++it0, ++it1) {
   const auto &B=*in[1];
@@ -322,10 +321,8 @@ bool Mul<T>::init(const std::vector<Tensor<T>*>& in) {
 
 template <typename T>
 bool Mul<T>::loadInternal(std::istream& file, Version v) {
-  if (v == Version::sadl01) {
     file.read((char*)&q_, sizeof(q_));
     SADL_DBG(std::cout << "  - q: " << q_ << std::endl);
-  }
 
   return true;
 }

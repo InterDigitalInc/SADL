@@ -31,52 +31,49 @@
 * THE POSSIBILITY OF SUCH DAMAGE.
 */
 #pragma once
+#include "layer.h"
 
-// build options
-// behavior
-#ifndef SATURATE_RESULT
-#define SATURATE_RESULT     1 // avoid overflow in int NN
-#endif
-// optimization
-// nothing/-msse42: no simd
-// -mavx2:  avx2
-// -mavx2 -mfma: avx2 + fuse multiply/add
-// -mavx512bw -mavx512f: avx512
-// #define NDEBUG        1 // remove sanity tests
-
-// debug
-// #define DEBUG_VALUES        1 // show values
-// #define DEBUG_MODEL         1 // show pb with model
-// #define DEBUG_COUNTERS      1 // print overflow etc.
-// #define DEBUG_PRINT         1 // print model info
-// #define DEBUG_SIMD          1 // tell about non simd version
-// #define DEBUG_KEEP_OUTPUT   1 // keep a copy of the output tensor
-#if SATURATE_RESULT
-#define SATURATE(X) if (!std::is_same<T,float>::value) X = (X>ComputationType<T>::max)?ComputationType<T>::max:(X<-ComputationType<T>::max?-ComputationType<T>::max:X)
-#else
-#define SATURATE(X)
-#endif
-
-#if DEBUG_COUNTERS
-template<typename T> T my_abs(T x) { return x<T{}?-x:x; }
-#define COUNTERS(X)  ++this->cpt_op; if (my_abs(X) > ComputationType<T>::max) ++this->cpt_overflow
-#define COUNTERS_MAC(X)  ++this->cpt_mac; if (X!=0) ++this->cpt_mac_nz
-#else
-#define COUNTERS(X) (void)X
-#define COUNTERS_MAC(X)  (void)X
-#endif
-
-
-#if DEBUG_MODEL || DEBUG_VALUES || DEBUG_COUNTERS || !NDEBUG
-#ifndef DEBUG_PRINT
-#define DEBUG_PRINT 1
-#endif
-#endif
-
-
-#ifndef DUMP_MODEL_EXT
-#define DUMP_MODEL_EXT
-#endif
 namespace sadl {
-enum class Version { unknown=-1, sadl01=1, sadl02=2 };
+namespace layers {
+
+template <typename T>
+class Shape : public Layer<T> {
+ public:
+  using Layer<T>::Layer;
+  using Layer<T>::out_; // to avoid this->
+  using Layer<T>::initDone_;
+
+  virtual bool apply(std::vector<Tensor<T> *> &in) override;
+  virtual bool init(const std::vector<Tensor<T> *> &in) override;
+
+ protected:
+  virtual bool loadInternal(std::istream &file,Version v) override;
+};
+
+template <typename T>
+bool Shape<T>::apply(std::vector<Tensor<T> *> &in) {
+  assert(in.size() == 1);
+  (void)in;
+  // done at init
+  return true;
 }
+
+template <typename T>
+bool Shape<T>::init(const std::vector<Tensor<T> *> &in) {
+  if (in.size() != 1) return false;
+  Dimensions d;
+  d.resize(1);
+  d[0]=in[0]->dims().size();
+  out_.resize(d);
+  copy(in[0]->dims().begin(),in[0]->dims().end(),out_.begin());
+  initDone_ = true;
+  return true;
+}
+
+template <typename T>
+bool Shape<T>::loadInternal(std::istream &,Version ) {
+  return true;
+}
+
+}  // namespace layers
+}  // namespace sadl

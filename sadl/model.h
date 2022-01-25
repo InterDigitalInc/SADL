@@ -56,7 +56,7 @@ private:
   std::vector<LayerData> data_;
   int32_t nb_inputs_ = 0;
   static constexpr int kMaxInputByLayer = 2;
-  static constexpr int kMaxLayers = 256;
+  static constexpr int kMaxLayers = 512;
   std::vector<typename layers::Layer<T>::Id> getLayerIdsWithInput(typename layers::Layer<T>::Id id) const;
   void insertCopyLayers();
   void reshapeConv2DFilters();
@@ -147,6 +147,12 @@ std::unique_ptr<layers::Layer<T>> createLayer(int32_t id, layers::OperationType:
     case layers::OperationType::Flatten:
       return std::unique_ptr<layers::Layer<T>>(new layers::Flatten<T>{id, op});
       break;
+    case layers::OperationType::Shape:
+      return std::unique_ptr<layers::Layer<T>>(new layers::Shape<T>{id, op});
+      break;
+    case layers::OperationType::Expand:
+      return std::unique_ptr<layers::Layer<T>>(new layers::Expand<T>{id, op});
+      break;
     case layers::OperationType::OperationTypeCount:
       break;  // no default on purpose
   }
@@ -168,7 +174,10 @@ bool Model<T>::load(std::istream &file) {
   SADL_DBG(std::cout << "[INFO] read magic " << magic << std::endl);
   std::string magic_s = magic;
   if (magic_s == "SADL0001") {
-    version_ = Version::sadl01;
+    std::cerr<<"[ERROR] please use the converter for v2 of SADL"<< std::endl;
+    return false;
+  } else if (magic_s == "SADL0002") {
+      version_ = Version::sadl02;
   } else {
     if (!file) {
       std::cerr << "[ERROR] Pb reading model" << std::endl;
@@ -178,7 +187,7 @@ bool Model<T>::load(std::istream &file) {
     return false;
   }
 
-  if (version_ == Version::sadl01) {
+  {
     int32_t x = 0;
     file.read((char *)&x, sizeof(int32_t));
     if ((std::is_same<T, float>::value && x != layers::TensorInternalType::Float) || (std::is_same<T, int32_t>::value && x != layers::TensorInternalType::Int32) ||
@@ -199,7 +208,7 @@ bool Model<T>::load(std::istream &file) {
   data_.clear();
   data_.resize(nb_layers);
 
-  if (version_ == Version::sadl01) {
+  {
     int32_t nb;
     file.read((char *)&nb, sizeof(int32_t));
     ids_input.resize(nb);
@@ -279,7 +288,7 @@ bool Model<T>::init(std::vector<Tensor<T>> &in) {
     return false;
   }
   nb_inputs_ = (int)in.size();
-  if ((version_ == Version::sadl01) && nb_inputs_ != (int)ids_input.size()) {
+  if (nb_inputs_ != (int)ids_input.size()) {
     std::cerr << "[ERROR] inconsistent input dimension" << std::endl;
     return false;
   }
@@ -398,7 +407,7 @@ bool Model<T>::apply(std::vector<Tensor<T>> &in) {
       const int id = data_[layer_cnt].layer->inputs_id_[kk];
       std::cout << id << " (q=" << data_[layer_cnt].inputs[kk]->quantizer << ") ";
     }
-    std::cout << "] ";
+    std::cout << "... ] ";
 #endif
 
     ok &= data_[layer_cnt].layer->apply(data_[layer_cnt].inputs);
@@ -406,7 +415,7 @@ bool Model<T>::apply(std::vector<Tensor<T>> &in) {
     std::cout << "q=" << data_[layer_cnt].layer->out_.quantizer << " [";
     float Q = (1 << data_[layer_cnt].layer->out_.quantizer);
     for (int k = 0; k < 8 && k < (int)data_[layer_cnt].layer->out_.size(); ++k) std::cout << data_[layer_cnt].layer->out_[k] / Q << ' ';
-    std::cout << "]" << std::endl;
+    std::cout << " ...]" << std::endl;
 #endif
 #if DEBUG_MODEL
     data_[layer_cnt].layer->computed_ = true;
@@ -595,10 +604,6 @@ template <typename T>
 std::vector<Tensor<T>> Model<T>::getInputsTemplate() const {
   assert(!data_.empty());
   std::vector<Tensor<T>> v;
-  if (version_ < Version::sadl01) {
-    std::cerr<<"[ERROR] not available"<<std::endl;
-    return v;
-  }
 
   for (auto &id_input: ids_input) {
       auto &L_tmp = getLayer(id_input);

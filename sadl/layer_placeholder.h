@@ -82,7 +82,6 @@ bool Placeholder<T>::init(const std::vector<Tensor<T> *> &in)
 template<typename T>
 bool Placeholder<T>::loadInternal(std::istream &file, Version v)
 {
-  if (v == Version::sadl01) {
     int32_t x = 0;
     file.read((char*)&x, sizeof(x));
     if (x <= 0 || x > Dimensions::MaxDim) {
@@ -102,7 +101,6 @@ bool Placeholder<T>::loadInternal(std::istream &file, Version v)
     file.read((char*)&q_, sizeof(q_));
     SADL_DBG(std::cout << "  - dim: " <<dims_ << std::endl);
     SADL_DBG(std::cout << "  - q: " <<q_ << std::endl);
-  }
   return true;
 }
 

@@ -40,7 +40,7 @@ using namespace std;
 
 namespace {
 sadl::layers::TensorInternalType::Type getModelType(const string &filename) {
-  const string MAGICNUMBER="SADL0001";
+  const string MAGICNUMBER="SADL0002";
   ifstream file(filename, ios::binary);
   char magic[9];
   file.read(magic, 8);

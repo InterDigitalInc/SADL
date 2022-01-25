@@ -49,6 +49,8 @@
 #include "layer_leakyrelu.h"
 #include "layer_transpose.h"
 #include "layer_flatten.h"
+#include "layer_shape.h"
+#include "layer_expand.h"
 
 namespace sadl {
 
@@ -77,6 +79,8 @@ inline std::string opName(const OperationType::Type op) {
       DIRTYCASEPRINT(LeakyRelu);
       DIRTYCASEPRINT(Transpose);
       DIRTYCASEPRINT(Flatten);
+      DIRTYCASEPRINT(Shape);
+      DIRTYCASEPRINT(Expand);
     default: oss<<"??"; break;
     }
     return oss.str();

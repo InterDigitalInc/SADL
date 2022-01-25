@@ -105,6 +105,8 @@ class OPTYPE(IntEnum):
     LeakyReLU=14,
     Transpose=15,
     Flatten=16,
+    Shape=17,
+    Expand=18,
     # In "tf2cpp", the same layer performs the matrix multiplication
     # and the matrix multiplication by batches.
     BatchMatMul = 6,
@@ -148,12 +150,12 @@ class DTYPE_ONNX(IntEnum):
 class Node_Annotation:
     to_remove=False
     add_transpose_before=False
- #   data_layout_sadl=None
+    add_transpose_after=False
     to_transpose = False
     layout_onnx = None
     
     def __repr__(self):
-      return "to_remove={}, to_transpose={}, layout_onnx={}, add_transpose_before={}".format(self.to_remove,self.to_transpose,self.layout_onnx,self.add_transpose_before)
+      return "to_remove={}, to_transpose={}, layout_onnx={}, add_transpose_before={}".format(self.to_remove,self.to_transpose,self.layout_onnx,self.add_transpose_before,self.add_transpose_after)
 
 # get attribute name in node
 def getAttribute(node, attr):
@@ -341,6 +343,29 @@ def add_transpose(node,myGraph,map_onnx_to_myGraph):
     myGraph[nname]["inputs"] = [map_onnx_to_myGraph[node.input[0]], reshape_coef_name]         
     map_onnx_to_myGraph[nname] = nname
     return nname   
+
+def add_transpose_after(node,myGraph,map_onnx_to_myGraph):
+     # Transpose inserted
+    # Const
+    reshape_coef_name = node.output[0]+ "_COEF_TRANSPOSE_AFTER_NOT_IN_GRAPH"
+    myGraph[reshape_coef_name] = {}
+    myGraph[reshape_coef_name]["op_type"] = OPTYPE.Const 
+    myGraph[reshape_coef_name]["inputs"] = []         
+    additional = {}                    
+    additional["dims"] = [4]
+    additional["raw_data"] = np.array([0,2,3,1], dtype=np.int32).tobytes()
+    additional["dtype"] = DTYPE_SADL.INT32
+    additional["data"] = node 
+    myGraph[reshape_coef_name]["additional"] = additional
+    map_onnx_to_myGraph[reshape_coef_name] = reshape_coef_name
+    
+    nname = node.output[0]+ "_TRANSPOSE_AFTER_NOT_IN_GRAPH"
+    myGraph[nname] = {}
+    myGraph[nname]["op_type"] = OPTYPE.Transpose
+    myGraph[nname]["inputs"] = [map_onnx_to_myGraph[node.output[0]], reshape_coef_name]         
+    map_onnx_to_myGraph[nname] = nname
+    map_onnx_to_myGraph[node.output[0]]=nname
+    return nname   
     
 def parse_graph_node(node, model_onnx, myGraph, node_annotation, map_onnx_to_myGraph,verbose):
     if verbose>1: print("parse node",node.name)
@@ -375,6 +400,8 @@ def parse_graph_node(node, model_onnx, myGraph, node_annotation, map_onnx_to_myG
         if node.op_type == "Conv":
           a = getAttribute(node,'strides')
           additional["strides"] = a.ints
+          a = getAttribute(node,'pads')
+          additional["pads"] = a.ints
           
         if nb_inputs == 2:
             map_onnx_to_myGraph[node.output[0]] = node.output[0]
@@ -466,6 +493,12 @@ def parse_graph_node(node, model_onnx, myGraph, node_annotation, map_onnx_to_myG
         myGraph[node.output[0]]["additional"] = {}        
         a = getAttribute(node,'strides')
         myGraph[node.output[0]]["additional"]["strides"] = [1, a.ints[0], a.ints[1], 1]
+        a = getAttribute(node,'pads')
+        if a == None:
+            pp = [ 0,0,0,0]
+        else:
+            pp = a.ints
+        myGraph[node.output[0]]["additional"]["pads"] = pp
         a = getAttribute(node,'kernel_shape')
         myGraph[node.output[0]]["additional"]["kernel_shape"] = [1, a.ints[0], a.ints[1], 1]
         myGraph[node.output[0]]["additional"]["data"] = node  
@@ -534,6 +567,31 @@ def parse_graph_node(node, model_onnx, myGraph, node_annotation, map_onnx_to_myG
         myGraph[node.output[0]]["additional"]["data"] = node                          
         map_onnx_to_myGraph[node.output[0]] = node.output[0]
                 
+    elif node.op_type == "PRelu": # map to leakyrelu because no training
+        # coef
+        additional = {}
+        additional["data"] = node
+        additional["dims"] = [1]
+        dims, data, dtype= extract_additional_data(node.input[1], False, model_onnx.graph)
+        if np.prod(dims) != 1:
+            quit("[ERROR] PRelu slope not scalar:",dims)
+        f = np.frombuffer(data, dtype=np.float32)
+        additional["raw_data"] =  np.array(float(f),dtype=np.float32).tobytes()
+        additional["dtype"] = DTYPE_SADL.FLOAT
+        map_onnx_to_myGraph[node.output[0] + "_COEF_NOT_IN_GRAPH"] = None 
+                   
+        myGraph[node.output[0] + "_NOT_IN_GRAPH"] = {}
+        myGraph[node.output[0] + "_NOT_IN_GRAPH"]["inputs"] = []
+        myGraph[node.output[0] + "_NOT_IN_GRAPH"]["additional"] = additional
+        myGraph[node.output[0] + "_NOT_IN_GRAPH"]["op_type"] = OPTYPE.Const
+
+        myGraph[node.output[0]]= {}
+        myGraph[node.output[0]]["op_type"] = OPTYPE.LeakyReLU
+        myGraph[node.output[0]]["inputs"] = [map_onnx_to_myGraph[n0name],node.output[0] + "_NOT_IN_GRAPH"]
+        myGraph[node.output[0]]["additional"] = {} 
+        myGraph[node.output[0]]["additional"]["data"] = node                          
+        map_onnx_to_myGraph[node.output[0]] = node.output[0]
+
     elif node.op_type == "Flatten":        
         inputs, additional = [], {}
         inputs = [map_onnx_to_myGraph[n0name]]
@@ -546,7 +604,23 @@ def parse_graph_node(node, model_onnx, myGraph, node_annotation, map_onnx_to_myG
         myGraph[node.output[0]]["op_type"] = OPTYPE.Flatten
         map_onnx_to_myGraph[node.output[0]] = node.output[0]
 
+    elif node.op_type == "Shape":
+        myGraph[node.output[0]]= {}
+        myGraph[node.output[0]]["op_type"] = OPTYPE.Shape
+        myGraph[node.output[0]]["inputs"] = [map_onnx_to_myGraph[n0name]]
+        myGraph[node.output[0]]["additional"] = {} 
+        myGraph[node.output[0]]["additional"]["data"] = node                          
+        map_onnx_to_myGraph[node.output[0]] = node.output[0]   
 
+    elif node.op_type == "Expand":
+        inputs, additional = [], {}
+        inputs = [map_onnx_to_myGraph[n0name],map_onnx_to_myGraph[node.input[1]]]
+        additional["data"] = node
+        myGraph[node.output[0]] = {}
+        myGraph[node.output[0]]["inputs"] = inputs
+        myGraph[node.output[0]]["additional"] = additional 
+        myGraph[node.output[0]]["op_type"] = OPTYPE.Expand
+        map_onnx_to_myGraph[node.output[0]] = node.output[0]
 
     elif node.op_type == "Reshape" or node.op_type == "MatMul":
         # Const
@@ -585,7 +659,7 @@ def parse_graph_node(node, model_onnx, myGraph, node_annotation, map_onnx_to_myG
         additional["dtype"] = DTYPE_SADL.INT32
         additional["data"] = node 
         myGraph[node.output[0]]["additional"] = additional
-        map_onnx_to_myGraph[node.output[0]] = node.output[0] + "_NOT_IN_GRAPH"
+        map_onnx_to_myGraph[node.output[0] + "_NOT_IN_GRAPH"] = None
         
         # Concatenate
         inputs, additional = [], {}
@@ -597,8 +671,8 @@ def parse_graph_node(node, model_onnx, myGraph, node_annotation, map_onnx_to_myG
         myGraph[node.output[0] + "_NOT_IN_GRAPH"]["inputs"] = inputs
         myGraph[node.output[0] + "_NOT_IN_GRAPH"]["additional"] = additional
         myGraph[node.output[0] + "_NOT_IN_GRAPH"]["op_type"] = OPTYPE.ConcatV2
+        map_onnx_to_myGraph[node.output[0]] = node.output[0] + "_NOT_IN_GRAPH"
             
-        map_onnx_to_myGraph[node.output[0] + "_NOT_IN_GRAPH"] = None
     
     elif node.op_type == "Max":
         myGraph[node.output[0]]= {}
@@ -634,6 +708,10 @@ def parse_graph_node(node, model_onnx, myGraph, node_annotation, map_onnx_to_myG
 
     else:
         raise Exception("[ERROR] node not supported:\n{})".format(node))
+
+    if node_annotation[node.name].add_transpose_after: 
+       n0name = add_transpose_after(node,myGraph,map_onnx_to_myGraph)           
+
 
 def parse_onnx(model_onnx, node_annotation, verbose=False):
     myGraph, map_onnx_to_myGraph = OrderedDict(), {}
@@ -685,7 +763,7 @@ def dump_onnx(graph, my_inputs, my_outputs,output_filename,verbose=False):
     
     # dbg print(map_name_to_idx)
     with open(output_filename, "wb") as f:
-        f.write(str.encode('SADL0001'))
+        f.write(str.encode('SADL0002'))
         # output of the network type 0: int32 | 1: float | 2: int16 | default: float(1)
         f.write(struct.pack('i', int(DTYPE_SADL.FLOAT)))
         
@@ -762,6 +840,13 @@ def dump_onnx(graph, my_inputs, my_outputs,output_filename,verbose=False):
                     if verbose: print(f"#\t\t {stride}")
                     f.write(struct.pack('i', int(stride)))
 
+                if verbose: print("#\t  nb_dim_pads", len(node['additional']['pads']))
+                f.write(struct.pack('i', int(len(node['additional']['pads']))))
+
+                for p in node['additional']['pads']:
+                    if verbose: print(f"#\t\t {p}")
+                    f.write(struct.pack('i', int(p)))
+
             elif node['op_type'] == OPTYPE.Placeholder:
                 if verbose: print(f"#\t nb input dimension {len(node['additional']['dims'])}")
                 f.write(struct.pack('i', int(len(node['additional']['dims']))))
@@ -789,6 +874,13 @@ def dump_onnx(graph, my_inputs, my_outputs,output_filename,verbose=False):
                     if verbose: print(f"#\t\t {ks}")
                     f.write(struct.pack('i', int(ks)))
 
+                if verbose: print("#\t  nb_dim_pads", len(node['additional']['pads']))
+                f.write(struct.pack('i', int(len(node['additional']['pads']))))
+
+                for p in node['additional']['pads']:
+                    if verbose: print(f"#\t\t {p}")
+                    f.write(struct.pack('i', int(p)))
+
             elif node['op_type'] == OPTYPE.Flatten:
                 if verbose: print("#\t axis", node['additional']['axis'])
                 f.write(struct.pack('i', int(node['additional']['axis'])))
@@ -799,6 +891,7 @@ def dump_onnx(graph, my_inputs, my_outputs,output_filename,verbose=False):
 
             if verbose: print("")
 
+    
     
 # adatp (remove/add) the current node to the data_layout and 
 # recurse in the output
@@ -867,6 +960,8 @@ def annotate_node(node,model_onnx,node_annotation,global_data_layout,verbose): #
                     node_annotation[node.name].layout_onnx=None
             elif data_layout == None:
                 node_annotation[node.name].layout_onnx=global_data_layout # back to org
+                if global_data_layout == 'nchw':
+                    node_annotation[node.name].add_transpose_after=True     # a bit too agressive
         else:
             node_annotation[node.name].layout_onnx=None
         

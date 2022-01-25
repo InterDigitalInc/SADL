@@ -178,34 +178,6 @@ inline bool MatMul<float>::apply_dim2_simd16(std::vector<Tensor<float> *> &in) {
 }
 #endif
 
-#if 0 // TODO
-template <>
-inline bool MatMul<int16_t>::apply_dim2_simd16(std::vector<Tensor<int16_t> *> &in) {
-  using T = int16_t;
-  const Tensor<T> &A{*in[0]};
-  const Tensor<T> &B{*in[1]};
-  const int H{A.dims().back()};
-  const int R{B.dims()[1]};
-  const int shift{in[1]->quantizer + q_};
-  assert(H % 16 == 0);
-  for (int t = 0; t < R; ++t) {
-    __m256i s = _mm256_setzero_si256();
-    const T *aptr = A.data();
-    const T *bptr = B.data() + t * H;  // T * i + t  (i, t); => B[t*H+i] if transposed
-    for (int i = 0; i < H; i += 16, aptr += 16, bptr += 16) {
-      __m256i a = _mm256_load_si256((const __m256i *)aptr);
-      __m256i b = _mm256_load_si256((const __m256i *)bptr);
-      const __m256i mad0 = _mm256_madd_epi16(a, b);  // res in si32
-      s = _mm256_add_epi32(s, mad0);
-    }
-    typename ComputationType<int32_t>::type z = (sum32_int16(s) >> shift);
-    COUNTERS(z);
-    SATURATE(z);
-    out_[t] = z;
-  }
-  return true;
-}
-#endif
 
 // to do
 template <typename T>
@@ -386,10 +358,8 @@ bool MatMul<T>::init(const std::vector<Tensor<T> *> &in) {
 
 template <typename T>
 bool MatMul<T>::loadInternal(std::istream &file, Version v) {
-  if (v == Version::sadl01) {
     file.read((char *)&q_, sizeof(q_));
     SADL_DBG(std::cout << "  - q: " << q_ << std::endl);
-  }
   return true;
 }
 

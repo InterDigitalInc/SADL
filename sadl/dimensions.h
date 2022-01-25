@@ -39,7 +39,7 @@
 namespace sadl {
 
 struct Dimensions {
-    static constexpr int MaxDim=4;
+    static constexpr int MaxDim=6;
     using iterator=int *;
     using const_iterator=const int *;
 
@@ -63,7 +63,7 @@ struct Dimensions {
     bool operator==(const Dimensions &d) const { return d.s_==s_&&std::equal(v_,v_+s_,d.v_); }
     int back() const { return v_[s_-1]; }
 private:
-    int v_[MaxDim];
+    int v_[MaxDim]={};
     int s_=0;
 };
 

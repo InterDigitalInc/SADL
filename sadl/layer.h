@@ -61,7 +61,9 @@ struct OperationType {
     LeakyRelu = 14,
     Transpose = 15,
     Flatten = 16,
-    OperationTypeCount = 17
+    Shape = 17,
+    Expand = 18,
+    OperationTypeCount = 19
   };
 };
 
