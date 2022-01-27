@@ -33,7 +33,11 @@
 #pragma once
 #include <algorithm>
 #include <cstdlib>
+#if _WIN32 || __USE_ISOC11
 #include <malloc.h>
+#else
+#include <malloc/malloc.h>
+#endif
 #include <numeric>
 #include <vector>
 #include "options.h"
@@ -98,7 +102,10 @@ struct aligned_allocator
 #if __USE_ISOC11
         void *const pv = aligned_alloc(Alignment, s);
 #else
-        void *const pv = !posix_memalign(&pv, Alignment, s);
+        void *pv=nullptr;
+        if (posix_memalign(&pv, Alignment, s)) {
+             throw std::bad_alloc();
+        }
 #endif
 #endif
 
