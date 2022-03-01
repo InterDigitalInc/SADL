@@ -155,7 +155,7 @@ class Node_Annotation:
     layout_onnx = None
     
     def __repr__(self):
-      return "to_remove={}, to_transpose={}, layout_onnx={}, add_transpose_before={}".format(self.to_remove,self.to_transpose,self.layout_onnx,self.add_transpose_before,self.add_transpose_after)
+      return "to_remove={}, to_transpose={}, layout_onnx={}, add_transpose_before={} add_transpose_after={}".format(self.to_remove,self.to_transpose,self.layout_onnx,self.add_transpose_before,self.add_transpose_after)
 
 # get attribute name in node
 def getAttribute(node, attr):
@@ -331,7 +331,7 @@ def add_transpose(node,myGraph,map_onnx_to_myGraph):
     myGraph[reshape_coef_name]["inputs"] = []         
     additional = {}                    
     additional["dims"] = [4]
-    additional["raw_data"] = np.array([0,3,1,2], dtype=np.int32).tobytes()
+    additional["raw_data"] = np.array([0,3,1,2], dtype=np.int32).tobytes() # nhwc -> nchw
     additional["dtype"] = DTYPE_SADL.INT32
     additional["data"] = node 
     myGraph[reshape_coef_name]["additional"] = additional
@@ -353,7 +353,7 @@ def add_transpose_after(node,myGraph,map_onnx_to_myGraph):
     myGraph[reshape_coef_name]["inputs"] = []         
     additional = {}                    
     additional["dims"] = [4]
-    additional["raw_data"] = np.array([0,2,3,1], dtype=np.int32).tobytes()
+    additional["raw_data"] = np.array([0,2,3,1], dtype=np.int32).tobytes() # nchw -> nhwc
     additional["dtype"] = DTYPE_SADL.INT32
     additional["data"] = node 
     myGraph[reshape_coef_name]["additional"] = additional
@@ -1042,7 +1042,7 @@ def detectDataType(model): # more adaptation to do here if tf is using nchw
         quit('[ERROR] unable to detect data layout')
         
     
-def dumpModel(model_onnx, output_filename, data_layout, verbose):
+def dumpModel(model_onnx, output_filename, data_layout, verbose, user_annotation):
     """Writes the neural network model in the \"sadl\" format to binary file.
     
     Parameters
@@ -1074,6 +1074,16 @@ def dumpModel(model_onnx, output_filename, data_layout, verbose):
 
     node_annotation={}
     annotate_graph(model_onnx_copy, node_annotation, data_layout,verbose)
+    
+    for k, v in user_annotation.items():
+      if k in node_annotation:
+        if v.add_transpose_before is not  None: node_annotation[k].add_transpose_before=v.add_transpose_before
+        if v.add_transpose_after is not  None: node_annotation[k].add_transpose_after=v.add_transpose_after
+        if v.to_remove is not  None: node_annotation[k].to_remove=v.to_remove
+        if v.to_transpose is not  None: node_annotation[k].to_transpose=v.to_transpose       
+      else:
+        print("[ERROR] unknown node user custom",k)
+        quit()
 
     if verbose>1: print("INFO] annotations:\n{" + "\n".join("{!r}: {!r},".format(k, v) for k, v in node_annotation.items()) + "}") # print("[INFO] node annotations:", node_annotation)
     my_graph, my_inputs, my_outputs = parse_onnx(model_onnx_copy, node_annotation,  verbose=verbose)
@@ -1096,6 +1106,10 @@ if __name__ == '__main__':
     parser.add_argument('--nchw', action='store_true')
     parser.add_argument('--nhwc', action='store_true')
     parser.add_argument('--verbose', action="count")
+    parser.add_argument('--do_not_add_transpose_before', action="store",nargs='+', default=[],help='specify a node where add transpose before will be disable' )
+    parser.add_argument('--do_not_add_transpose_after', action="store",nargs='+', default=[],help='specify a node where add transpose after will be disable' )
+    
+    
     args = parser.parse_args()
     if args.input_onnx is None:
         raise('[ERROR] You should specify an onnx file') 
@@ -1109,11 +1123,30 @@ if __name__ == '__main__':
     
     model_onnx = onnx.load(args.input_onnx)
    
+    user_annotation = {}
+    for node in args.do_not_add_transpose_before:
+      if node not in user_annotation:
+        user_annotation[node]=Node_Annotation()
+        user_annotation[node].to_remove=None
+        user_annotation[node].add_transpose_before=None
+        user_annotation[node].add_transpose_after=None
+        user_annotation[node].to_transpose = None
+      user_annotation[node].add_transpose_before=False
+      
+    for node in args.do_not_add_transpose_after:
+      if node not in user_annotation:
+        user_annotation[node]=Node_Annotation()
+        user_annotation[node].to_remove=None
+        user_annotation[node].add_transpose_before=None
+        user_annotation[node].add_transpose_after=None
+        user_annotation[node].to_transpose = None
+      user_annotation[node].add_transpose_after=False
+      
     data_layout = None
     if args.nchw:
       data_layout = 'nchw'
     elif args.nhwc:
       data_layout = 'nhwc'
     
-    dumpModel(model_onnx, args.output, data_layout, args.verbose)
+    dumpModel(model_onnx, args.output, data_layout, args.verbose,user_annotation )
     

@@ -58,6 +58,7 @@ template <typename T>
 bool Transpose<T>::apply(std::vector<Tensor<T> *> &in) {
   // NHWC to NCHW
   Dimensions d = out_.dims(); // {in[0]->dims()[0], in[0]->dims()[3], in[0]->dims()[1], in[0]->dims()[2]};
+#if 0
   if (nhwc2nchw_) {
     if ((d[3] == 1 || d[1] * d[2] == 1)) {
     swapData(*in[0], out_);
@@ -70,11 +71,29 @@ bool Transpose<T>::apply(std::vector<Tensor<T> *> &in) {
           }
         }
       }
+    }
+    // }
    // }
   } else {  // general case: not optimized
+#endif
+
     const auto & A=*in[0];
     Dimensions Ad=A.dims();
     if      (d.size()==1)  swapData(*in[0], out_);
+    else if (d.size()==4)  {
+        std::array<int,4> index;
+        std::array<int *,4> index_mapped;
+        for(int k=0;k<4;++k) index_mapped[k]=&index[perm_[k]];
+
+        for(index[0]=0;index[0]<Ad[0];++index[0])
+          for(index[1]=0;index[1]<Ad[1];++index[1])
+            for(index[2]=0;index[2]<Ad[2];++index[2])
+              for(index[3]=0;index[3]<Ad[3];++index[3]){
+                    auto offsetA= (Ad[3] * ( Ad[2] * ( Ad[1] * index[0] + index[1]) + index[2]) + index[3] );
+                    auto offsetOut=(d[3] * ( d[2] * ( d[1] * *index_mapped[0] + *index_mapped[1]) + *index_mapped[2]) + *index_mapped[3] );
+                    out_[offsetOut]=A[offsetA];
+                  }
+    }
     else if (d.size()==6) { // very naive version
       std::array<int,6> index;
       std::array<int *,6> index_mapped;
@@ -94,7 +113,7 @@ bool Transpose<T>::apply(std::vector<Tensor<T> *> &in) {
       std::cerr << "\nTODO Transpose case: " << in[0]->dims() << " => " << out_.dims() << std::endl;
       exit(-1);
     }
-  }
+//  }
   return true;
 }
 

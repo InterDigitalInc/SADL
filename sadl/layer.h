@@ -174,7 +174,7 @@ bool Layer<T>::loadPrefix(std::istream &file, Version v) {
   SADL_DBG(std::cout << "  - name: " << name_ << '\n');
 
   file.read((char *)&L, sizeof(int32_t));
-  assert(L >= 0 && L < 6);
+  assert(L >= 0 && L < 8);
   inputs_id_.resize(L);
   SADL_DBG(std::cout << "  - inputs: ");
   for (auto &x : inputs_id_) {
