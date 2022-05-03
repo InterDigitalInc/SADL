@@ -3,7 +3,7 @@
 * and contributor rights, including patent rights, and no such rights are
 * granted under this license.
 *
-* Copyright (c) 2010-2021, ITU/ISO/IEC
+ * Copyright (c) 2010-2022, ITU/ISO/IEC
 * All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
@@ -62,21 +62,20 @@ template<typename T> T my_abs(T x) { return x<T{}?-x:x; }
 #define COUNTERS(X)  ++this->cpt_op; if (my_abs(X) > ComputationType<T>::max) ++this->cpt_overflow
 #define COUNTERS_MAC(X)  ++this->cpt_mac; if (X!=0) ++this->cpt_mac_nz
 #else
-#define COUNTERS(X) (void)X
+#define COUNTERS(X)      (void)X
 #define COUNTERS_MAC(X)  (void)X
-#endif
-
-
-#if DEBUG_MODEL || DEBUG_VALUES || DEBUG_COUNTERS || !NDEBUG
-#ifndef DEBUG_PRINT
-#define DEBUG_PRINT 1
-#endif
 #endif
 
 
 #ifndef DUMP_MODEL_EXT
 #define DUMP_MODEL_EXT
 #endif
-namespace sadl {
-enum class Version { unknown=-1, sadl01=1, sadl02=2 };
+namespace sadl
+{
+enum class Version
+{
+  unknown = -1,
+  sadl01  = 1,
+  sadl02  = 2
+};
 }

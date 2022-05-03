@@ -79,11 +79,12 @@ However, when integrated into a software, build options will drive several aspec
 - several macros will control the debug level and information level. The macros can be find in sadl/optiosn.h
 - the simd options pass to the compiler will control the level of SIMD activated in the code (the level is not, in the library, control dynamically)
 
-An example is given in the sample directory CMakeLists.txt:
-- release version just contains the "fast" version without any check or instrumentation for complexity assessment
-- debug version contains a more debug information to check the model validity, which layers are not SIMD optimized, the number of operations, the number of overflow in case of interger NN
+Several examples are given in the sample directory CMakeLists.txt:
+- count_mac: just assess the model complexity
+- debug_model: print information on potential issues in the model (wrong values, no SIMD layers etc.)
+- sample: inference of the model with 3 levels of optimization (generic, simd256, simd512)
 
-Example of build:
+Example of program:
 ```c++
 #include <sadl/model.h>
 
@@ -106,31 +107,27 @@ int main() {
     cerr << "[ERROR] issue during inference" << endl;
     exit(-1);
   }
-  const int N=model.getIdsOutput().size();
+  const int N=model.nbOutput();
   for(int i=0;i<N;++i) cout<<"[INFO] output "<<i<<'\n'<<model.result(i)<<endl;
 }
 ```
 
+A script test is available to test all programs:
 ```shell
-mkdir build
-cd build
-cmake -DCMAKE_BUILD_TYPE=Debug ../sample
-make
+./sample/sample_test.sh
 ```
 
 
 ## Validation instruction
-After converting the model and building the sample program, it can be used to validate the model inference in C++:
-```shell
-build/sample/sample_generic tf2.sadl
-```
-Output should be the same as the one on the python side.
 
 
 ### Output reading: model loading
-This part shows the model load issues and information.
 ```shell
-[INFO] Model loading
+sample_test/debug_model tf2.sadl
+```
+This part shows the model load issues and information on all layers parameters.
+```shell
+[INFO] == start model loading ==
 [INFO] start model loading
 [INFO] read magic SADL0001
 [INFO] Model type: 1
@@ -152,16 +149,20 @@ This part shows the model load issues and information.
   - name: cat_classifier/conv2d/BiasAdd:0
   - inputs: 0 1 
   - strides: ( 1 1 1 1 )
+  - pads: ( 1 1 1 1 )
   - q: 0
 [INFO] id: 3 op  Const
 ...
-[INFO] end model loading
+[INFO] == end model loading ==
 ```
 
 ### Output reading: model initialization
-This part shows information or issues during initialization of the model.
 ```shell
-[INFO] Model initilization
+sample_test/debug_model tf2.sadl
+```
+This part shows information or issues during initialization of the model. It also shows the size of each inputs and outputs for all layers.
+```shell
+[INFO] == start model init ==
 [INFO] start model init
 [INFO] float mode
 [INFO] use swapped tensor
@@ -173,25 +174,42 @@ This part shows information or issues during initialization of the model.
   - input conv2d: ( 1 16 16 3 ) ( 3 3 8 3 )
   - output Conv2D: ( 1 16 16 8 )
 ...
-[INFO] end model init
+[INFO] == end model init ==
 ```
 
-### Output reading: model inference
-This part shows information or issues during inferene of the model.
+### Output reading: model inference debugging
 ```shell
-[INFO] layer 0: ok
-[INFO] layer 1 (Const): ok
-[INFO] layer 2 (Conv2D): ok
-[INFO] layer 3 (Const): ok
-[INFO] layer 4 (BiasAdd): ok
-[INFO] layer 5 (MaxPool): ok
-[INFO] layer 6 (Const): ok
-[INFO] layer 7 (Conv2D): ok
-[INFO] layer 8 (Const): ok
-...
+sample_test/debug_model tf2.sadl
 ```
+This part shows information or issues during inference of the model. 
+```shell
+[INFO] == start model inference ==
+[INFO] 0 input.1 [PlaceHolder]: q=0 [0 0 0 0 0 0 0 0 ]
+[INFO] layer 0: ok
+[INFO] 1 conv01.weight Const]: inputs=[... ] q=0 [0.191466 -0.0538487 0.132789 0.103821 0.0535023 -0.214573 -0.197487 -0.113809  ...]
+[INFO] layer 1 (Const): ok
+[INFO] 2 19 Conv2D]: inputs=[0 (q=0) 1 (q=0) ... ] 
+[WARN] generic version conv 3x3 inD=3 outD=8 s=[1 1]  16x16 55 kMAC
+q=0 [0 0 0 0 0 0 0 0  ...]
+[INFO] layer 2 (Conv2D): ok
+[INFO] 3 conv01.bias Const]: inputs=[... ] q=0 [0 0 0 0 0 0 0 0  ...]
+...
+[INFO] Inference OK
+[INFO] == end model inference ==
+```
+To get a more readable list of issues:
+```shell
+sample_test/debug_model tf2.sadl | grep WARN
+```
+```shell
+[WARN] generic version conv 3x3 inD=3 outD=8 s=[1 1]  16x16 55 kMAC
+```
+Here we see that the convolution using 3x3 kernel, a stride of 1 with a number of kernels of 8 is not SIMD accelerated.
 
-### Output reading: model inference
+### Output reading: model complexity
+```shell
+sample_test/debug_model tf2.sadl | grep WARN
+```
 This part shows information on the number of operations in each layer (usually MAC but depends on the layer and the SIMD level).
 ```shell
 [INFO] Complexity assessment
@@ -210,10 +228,32 @@ The next part shows the real number of MAC executed by the model:
 ```
 
 ### Output reading: inference error
-This part shows information on the output error compared to the python side inference.
 ```shell
+sample_test/debug_model tf2.sadl 
+```
+
+This shows the output of the network. It can be compared to the python side inference.
+```shell
+...
 [INFO] output 0
 [ [[-0.178823	0.101747	  ] ]]
+```
+
+### Performance assessment 
+The generic version inference is given by:
+```shell
+sample_test/sample_generic tf2.sadl 
+...
+[INFO] 6.80042 ms
+...
+```
+
+The AVX512 version inference is given by:
+```shell
+sample_test/sample_simd512 tf2.sadl 
+...
+[INFO] 0.449472 ms
+...
 ```
 
 
