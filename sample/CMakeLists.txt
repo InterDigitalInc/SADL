@@ -22,5 +22,6 @@ set_target_properties(count_mac  PROPERTIES COMPILE_FLAGS "-DNDEBUG=1 " )  # mus
 add_executable(debug_model   debug_model.cpp ${HEADER_FILES})
 set_target_properties(debug_model  PROPERTIES COMPILE_FLAGS "-mavx512f -mavx512bw" ) # must build in SIMD mode to debug SIMD issue
 
+add_executable(naive_quantization   naive_quantization.cpp ${HEADER_FILES} dumper.h)
 
 

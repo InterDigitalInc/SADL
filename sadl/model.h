@@ -412,16 +412,24 @@ template<typename T> bool Model<T>::apply(std::vector<Tensor<T>> &in)
       ++placeholders_cnt;
       ok &= data_[layer_cnt].layer->apply(v);
 #if DEBUG_VALUES
+      if (std::is_same<T,float>::value) {
+          std::cout << "[INFO] " << data_[layer_cnt].layer->id() << " PlaceHolder "
+                    << " ("<<data_[layer_cnt].layer->name()<<"):\t[";
+          for (int k = 0; k < 8 && k < (int) data_[layer_cnt].layer->out_.size(); ++k)
+            std::cout << data_[layer_cnt].layer->out_[k]  << ' ';
+          std::cout << "]\t" ;
+      } else {
       std::cout << "[INFO] " << data_[layer_cnt].layer->id() << " " << data_[layer_cnt].layer->name()
-                << " [PlaceHolder]: q=" << data_[layer_cnt].layer->out_.quantizer << " [";
+                    << " (PlaceHolder): q=" << data_[layer_cnt].layer->out_.quantizer << " [";
       float Q = (1 << data_[layer_cnt].layer->out_.quantizer);
       for (int k = 0; k < 8 && k < (int) data_[layer_cnt].layer->out_.size(); ++k)
         std::cout << data_[layer_cnt].layer->out_[k] / Q << ' ';
-      std::cout << "]" << std::endl;
+          std::cout << "]\t" ;
+      }
 #endif
 #if DEBUG_MODEL
       data_[layer_cnt].layer->computed_ = true;
-      std::cout << "[INFO] layer " << layer_cnt << ": " << (ok ? "ok" : "failed") << std::endl;
+      std::cout << (ok ? "OK" : "FAIL") << std::endl;
 #endif
 #if DEBUG_KEEP_OUTPUT
       data_[layer_cnt].layer->outcopy_ = data_[layer_cnt].layer->out_;
@@ -443,28 +451,46 @@ template<typename T> bool Model<T>::apply(std::vector<Tensor<T>> &in)
     }
 #endif
 #if DEBUG_VALUES
-    std::cout << "[INFO] " << data_[layer_cnt].layer->id() << " " << data_[layer_cnt].layer->name() << " "
-              << opName(data_[layer_cnt].layer->op()) << "]: inputs=[";
+    std::cout << "[INFO] " << data_[layer_cnt].layer->id() << " " <<  opName(data_[layer_cnt].layer->op()) << " ("
+              << data_[layer_cnt].layer->name() << "):\t";
+    if (data_[layer_cnt].inputs.size()) {
+        std::cout<<"inputs={";
+    }
     for (int kk = 0; kk < (int) data_[layer_cnt].inputs.size(); ++kk)
     {
       const int id = data_[layer_cnt].layer->inputs_id_[kk];
-      std::cout << id << " (q=" << data_[layer_cnt].inputs[kk]->quantizer << ") ";
+      std::cout << id ;
+      if (!std::is_same<T,float>::value) {
+          std::cout<<"(q=" << data_[layer_cnt].inputs[kk]->quantizer << ")";
     }
-    std::cout << "... ] ";
+      if (kk!=(int)data_[layer_cnt].inputs.size()-1) std::cout<<", ";
+    }
+    if (data_[layer_cnt].inputs.size()) {
+        std::cout << "} ";
+    }
 #endif
 
     ok &= data_[layer_cnt].layer->apply(data_[layer_cnt].inputs);
 #if DEBUG_VALUES
-    std::cout << "q=" << data_[layer_cnt].layer->out_.quantizer << " [";
+     {
+        std::cout<<"outputs=[";
+        if (std::is_same<T,float>::value) {
+            for (int k = 0; k < 8 && k < (int) data_[layer_cnt].layer->out_.size(); ++k)
+                std::cout << data_[layer_cnt].layer->out_[k]  << ' ';
+            if (data_[layer_cnt].layer->out_.size()>8) std::cout<<" ...";
+            std::cout<<"]\t";
+        } else {
     float Q = (1 << data_[layer_cnt].layer->out_.quantizer);
     for (int k = 0; k < 8 && k < (int) data_[layer_cnt].layer->out_.size(); ++k)
       std::cout << data_[layer_cnt].layer->out_[k] / Q << ' ';
-    std::cout << " ...]" << std::endl;
+            if (data_[layer_cnt].layer->out_.size()>8) std::cout<<" ...";
+            std::cout << "] q=" << data_[layer_cnt].layer->out_.quantizer << "]\t";
+        }
+    }
 #endif
 #if DEBUG_MODEL
     data_[layer_cnt].layer->computed_ = true;
-    std::cout << "[INFO] layer " << layer_cnt << " (" << layers::opName((layers::OperationType::Type) (data_[layer_cnt].layer->op()))
-              << "): " << (ok ? "ok" : "failed") << std::endl;
+    std::cout << (ok ? "OK" : "FAIL") << std::endl;
 #endif
 #if DEBUG_KEEP_OUTPUT
     data_[layer_cnt].layer->outcopy_ = data_[layer_cnt].layer->out_;

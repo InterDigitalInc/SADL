@@ -55,6 +55,11 @@ template<typename T> void infer(const string &filename)
 
   //  sadl::Tensor<T>::skip_border = true;
   vector<sadl::Tensor<T>> inputs = model.getInputsTemplate();
+  // fill with 1
+  for(auto &t: inputs) {
+      T v=1<<(t.quantizer);
+      for(auto &x: t) x=v;
+  }
   cout << "[INFO] Model initilization" << endl;
 
   if (!model.init(inputs))
@@ -74,9 +79,9 @@ template<typename T> void infer(const string &filename)
   cout << "\n[INFO] Complexity assessment" << endl;
   auto stat = model.printOverflow(true);
   cout << "[INFO] ---------------------------------" << endl;
-  cout << "[INFO] " << stat.overflow << " overflow" << endl;
   cout << "[INFO] " << stat.op << " OPs" << endl;
   cout << "[INFO] " << stat.mac << " MACs" << endl;
+  cout << "[INFO] " << stat.overflow << " overflow" << endl;
   //cout << "[INFO] " << stat.mac_nz << " MACs non 0" << endl;
   cout << "[INFO] ---------------------------------" << endl;
 }

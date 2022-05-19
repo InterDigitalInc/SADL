@@ -60,6 +60,7 @@ template<typename T> void infer(const string &filename)
 
   //  sadl::Tensor<T>::skip_border = true;
   vector<sadl::Tensor<T>> inputs = model.getInputsTemplate();
+
   cout << "[INFO] Model initilization" << endl;
 
   if (!model.init(inputs))

@@ -75,6 +75,10 @@ template<typename T> bool Reshape<T>::init(const std::vector<Tensor<T> *> &in)
     return false;
   Dimensions dim;
   dim.resize(in[1]->size());
+  if (!std::is_same<float,T>::value&&in[1]->quantizer!=0) {
+      std::cerr << "[ERROR] quantizer on reshape dimensions data layer" << std::endl;
+      return false;
+  }
   for (int k = 0; k < in[1]->size(); ++k)
   {
     if ((*in[1]) (k) == -1)

@@ -117,6 +117,10 @@ template<typename T> bool Transpose<T>::init(const std::vector<Tensor<T> *> &in)
   // second layer is always reshape prms: value as int inside the tensor
   if (in[1]->dims().size() != 1)
     return false;
+  if (!std::is_same<float,T>::value&&in[1]->quantizer!=0) {
+      std::cerr << "[ERROR] quantizer on reshape dimensions data layer" << std::endl;
+      return false;
+  }
   Dimensions dim;
   dim.resize(in[1]->size());
   for (int k = 0; k < in[1]->size(); ++k)

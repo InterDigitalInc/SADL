@@ -222,25 +222,7 @@ The general file format for SADL is given below.
 Some layers contains additional parameters, please refer to the \texttt{loadInternal} function inside each layer class.
 
 
-\subsection{Quantization policy}
-For integer-based inference, all weights of each layer are converted to integer (either int32, int16 or int8). The layer also contains additional information on the quantizer to use.
-Both weights and latents use the internal integer (for example int16). For computation, the integer with double the number of bits is used: for example, for int16 format, int32 is used for computation.
-Compared to the float version, the operation are adapted as follows:
-\begin{itemize}
-\item Add/BiasAdd: $y = x_0>>(q_0-q_1) + x_1, q=q_1$
-\item Mul/MatMul/Conv2D: $y = (\sum x_0*x_1)>>(q_1+q_i), q=q_0-q_i$
-\item Concat: $y = x_0>>(q_0-q)|x_1>>(q_1-q)|..., q=\min(q_i)$
-\item LeakyReLU: $y = f(x_0)$, assume $\alpha < 0$ (so no overflow possible), $q=q_0$. Note that alpha of LeakyReLU is always quantified using the maximum possible quantizer.
-\item Maximum: $y = \max(x_0, x_1<<(q_0-q_1)), q=q_0$
-\item for layer with 1 input, the output will have the same quantizer.
-\end{itemize}
-Where:
-\begin{itemize}
-\item $x_0$, $x_1$ are the inputs
-\item $y$ is the output
-\item $q_0$ and $q_1$ are the shift of the quantizers, i.e. floating value can be recovered using $f = x/(1<<q)$
-\item $q_i$ is an internal shift for some layers
-\end{itemize}
+
 
 \section{Converter design}
 \subsection{Overview}
@@ -290,6 +272,69 @@ The following code changed were made:
 \end{itemize}
 \item in  \texttt{model.h} and  \texttt{layers.h} straightforward adaptation is added to handle the new \texttt{Flatten} layer.
 \end{itemize}
+
+\section{Quantized model support}
+\subsection{Quantization policy}
+For integer-based inference, all weights of each layer are converted to integer (either int32, int16 or int8). The layer also contains additional information on the quantizer to use.
+Both weights and latents use the internal integer (for example int16). For computation, the integer with double the number of bits is used: for example, for int16 format, int32 is used for computation.
+Compared to the float version, the operation are adapted as follows:
+\begin{itemize}
+\item Add/BiasAdd: $y = x_0>>(q_0-q_1) + x_1, q=q_1$
+\item Mul/MatMul/Conv2D: $y = (\sum x_0*x_1)>>(q_1+q_i), q=q_0-q_i$
+\item Concat: $y = x_0>>(q_0-q)|x_1>>(q_1-q)|..., q=\min(q_k)$ 
+\item LeakyReLU: $y = f(x_0)$, assume $\alpha < 0$ (so no overflow possible), $q=q_0$. Note that alpha of LeakyReLU is always quantified using the maximum possible quantizer.
+\item Maximum: $y = \max(x_0, x_1<<(q_0-q_1)), q=q_0$
+\item for layer with 1 input, the output will have the same quantizer.
+\end{itemize}
+Where:
+\begin{itemize}
+\item $x_0$, $x_1$ are the inputs
+\item $y$ is the output
+\item $q_0$ and $q_1$ are the shift of the quantizers, i.e. floating value can be recovered using $f = x/(1<<q)$
+\item $q_i$ is an internal shift for some layers
+\end{itemize}
+
+Note: When the value for the right shift is negative, it is considered to be a left shift.
+
+\subsection{Quantized model creation}
+\subsubsection{Example}
+A sample program demonstrating the conversion from a float model to a int16 quantized model is provided. The sample\_test script shows an usage of the program.
+\begin{lstlisting}[caption={SADL quantized model conversion},style=code]
+echo  "0 15    1 8 2 0 3 8   6 8 7 0 8 8 \
+ 10 9 11 0 12 8  14 8 15 1 16 8    20 8 21 0 22 9 \
+ 24 8 25 0 26 8  28 8 29 0 30 8  34 8 35 0 36 8 \
+ 38 0 39 0 42 8  43 0 44 8" | \
+ ./naive_quantization pytorch.sadl pytorch_int16.sadl
+\end{lstlisting}
+
+The program takes as input a model in float format, assuming the weights are already suitable to be transformed in int16 (see below) and the filename of the model in int16 format.
+On the standard input, it takes a list of layer index and associated quantizer for the layers which require one.
+In the example above,:
+\begin{itemize}
+\item "0\ 15": the layer 0 (which is a placeholder or input layer) has a quantizer of $2^{15}$,
+\item "1\ 8\ 2\ 0\ 3\ 8": the layers 1, 2 and 3 correpond respectively to the weights of the convolution of layer 2, the convolution of layer 2 and the weights of the bias layer respectively. The 0 of layer 2 means that the quantizer of the output will be the same as the quantizer of the input (cf previous section).
+\item etc.
+\end{itemize}
+
+To get the layer index, one can use the debug\_model software which output the layer index of all operations.
+
+Note that the sample software will just transform the weights in float in integer 16 bits after applying the correct scaling and clipping, set the correct quantization parameters in each layers and save the model as an int16 model directly usable in SADL. The software itself DOES NOT adapt the weights such as the final results minimize an arbitrary error. 
+
+\subsubsection{Static quantization}
+A first way to get an "optimal" quantized model is to perform a direct quantization. In this process, the weights are not tuned to minimize an inference error, only the "optimal" quantizers for each layers are found. This method works well for small to medium size models since the error accumulation stay low.
+No retraining stage is necessary for this method.
+
+\subsubsection{Dynamic quantization - Weights quantization}
+For bigger model, the weights quantization should be taken into account at the training stage. Typically, the model is first train normally, then a fixed (or dynamic) quantization and clipping are applied on the parameters. For this stage, the quantization should follow the quantization policy of SADL: typically, the quantizer should be a power of 2 + a clipping operation to fir into the underlying type.
+The model is then retrain using the modified layers, but keeping the float computation.
+The model conversion can then be done using the provided sample software, inputting the float model with fine-tuned weights and the quantizers used during the fine-tuning.
+
+\subsubsection{Dynamic quantization - Weights + activation quantization}
+In order to get more accurate results, the quantization and clipping can also be applied after each operations such as the intermediate tensors can still be represented using integers.
+
+\subsubsection{Normalization}
+In order to get the inputs values without any loss, it is recommended to normalize the data using power of 2. For example, luma samples in the range 0-1023 should be normalized by dividing by 1024 during the float model training. In this case, the integer model uses a quantizer parameter of 10 and uses directly the luma samples.
+
 
 \section{Other information}
 \begin{itemize}
