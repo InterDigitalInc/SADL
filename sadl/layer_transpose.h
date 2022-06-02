@@ -60,10 +60,13 @@ template<typename T> bool Transpose<T>::apply(std::vector<Tensor<T> *> &in)
                                 // in[0]->dims()[1], in[0]->dims()[2]};
   const auto &A  = *in[0];
   Dimensions  Ad = A.dims();
-  if (d.size() == 1)
+    if (d.size() == 1) {
     swapData(*in[0], out_);
+    }
   else if (d.size() == 4)
   {
+        out_.quantizer=in[0]->quantizer;
+          // border to skip??
     std::array<int, 4>   index;
     std::array<int *, 4> index_mapped;
     for (int k = 0; k < 4; ++k)
@@ -81,6 +84,8 @@ template<typename T> bool Transpose<T>::apply(std::vector<Tensor<T> *> &in)
   }
   else if (d.size() == 6)
   {   // very naive version
+        out_.quantizer=in[0]->quantizer;
+          // border to skip??
     std::array<int, 6>   index;
     std::array<int *, 6> index_mapped;
     for (int k = 0; k < 6; ++k)

@@ -380,7 +380,6 @@ void Conv2D<T>::conv2d_1x1_s_dispatch(int nb_filters, int in_H, int in_W, int in
 #define CONV_MOD16 conv2d_1x1_s_d
 #define CONV_MOD32 conv2d_1x1_s_d
 #endif
-
   switch (in_D)
   {
   case 1: conv2d_1x1_s_d<1, s_h, s_w>(nb_filters, in_H, in_W, start_h, start_w, out_, A, kernel); break;
@@ -822,6 +821,18 @@ static inline typename ComputationType<int16_t>::type sum32_int16(__m256i x)
   __m128i sum128 = _mm_add_epi32(_mm256_castsi256_si128(x), _mm256_extracti128_si256(x, 1));
   return hsum_epi32_avx(sum128);
 }
+
+static inline typename ComputationType<int16_t>::type sum32_int16(__m128i s)
+{
+    __m128i hi64 =
+      _mm_unpackhi_epi64(s, s);   // 3-operand non-destructive AVX lets us save a byte without needing a movdqa
+    __m128i sum64 = _mm_add_epi32(hi64, s);
+    __m128i hi32  = _mm_shuffle_epi32(sum64, _MM_SHUFFLE(2, 3, 0, 1));   // Swap the low two elements
+    __m128i sum32 = _mm_add_epi32(sum64, hi32);
+
+    typename ComputationType<int16_t>::type z = _mm_cvtsi128_si32(sum32);
+    return z;
+}
 #if __AVX512F__
 static inline float sum16_float(const __m512 vec_in)
 {
@@ -923,7 +934,42 @@ template<int in_D, int s_h, int s_w>
 void Conv2D<int16_t>::simd8_conv2d_1x1_s_d(int nb_filters, int in_H, int in_W, int start_h, int start_w, Tensor<int16_t> &out_, const Tensor<int16_t> &A,
                                            const Tensor<int16_t> &kernel)
 {   // should be sse42
-  conv2d_1x1_s_d<in_D, s_h, s_w>(nb_filters, in_H, in_W, start_h, start_w, out_, A, kernel);
+#if DEBUG_COUNTERS || SATURATE_RESULT
+  using T = int16_t;
+#endif
+  static_assert(in_D % 8 == 0, "Should be used with mod16 filters.");
+#if DEBUG_SIMD && __AVX2__
+  if (in_D >= 8)
+  {
+    std::cout << "\n[WARN] suboptimal SIMD8 version conv 3x3 inD=" << in_D << " outD=" << nb_filters << " s=[" << s_w << ' ' << s_h << "]  " << in_H << 'x'
+              << in_W << " " << in_D * kernel.dims()[0] * kernel.dims()[1] * nb_filters * (in_H / s_h) * (in_W / s_w) / 1000 << " kMAC" << std::endl;
+  }
+#endif
+  constexpr int im_nb = 0;
+  const int     shift = kernel.quantizer + q_;
+  for (int im_i = start_h ; im_i < in_H ; im_i += s_h)
+  {
+    for (int im_j = start_w ; im_j < in_W ; im_j += s_w)
+    {
+      for (int filter = 0; filter < nb_filters; ++filter)
+      {
+        __m128i s = _mm_setzero_si128();
+        for (int filter_d = 0; filter_d < in_D; filter_d += 8)
+        {
+          const __m128i *kptr = (const __m128i *) kernel.addr(0, 0, filter, filter_d);
+          const __m128i  k0   = _mm_load_si128(kptr);   // or loadu ?
+          const __m128i *aptr = (const __m128i *) A.addr(im_nb, im_i, im_j, filter_d);
+          const __m128i  v0   = _mm_load_si128(aptr);
+
+          const __m128i mad0 = _mm_madd_epi16(k0, v0);   // res in si32
+          s                  = _mm_add_epi32(s, mad0);
+        }
+        typename ComputationType<int32_t>::type z = (sum32_int16(s) >> shift);
+        SATURATE(z);
+        out_(im_nb, im_i / s_h, im_j / s_w, filter) = static_cast<int16_t>(z);
+      }
+    }
+  }
 }
 
 template<>
@@ -1175,7 +1221,53 @@ void Conv2D<int16_t>::simd8_conv2d_3x3_s_d(int nb_filters, int in_H, int in_W, i
                                            const Tensor<int16_t> &kernel)
 {
   // should be sse42
-  conv2d_3x3_s_d_core<in_D, s_h, s_w>(nb_filters, in_H, in_W, start_h, start_w, out_, A, kernel);
+#if DEBUG_COUNTERS || SATURATE_RESULT
+  using T = int16_t;
+#endif
+  static_assert(in_D % 8 == 0, "Should be used with mod8 filters.");
+#if DEBUG_SIMD
+  if (in_D >= 8)
+  {
+    std::cout << "\n[WARN] suboptimal SIMD8 version conv 3x3 inD=" << in_D << " outD=" << nb_filters << " s=[" << s_w << ' ' << s_h << "]  " << in_H << 'x'
+              << in_W << " " << in_D * kernel.dims()[0] * kernel.dims()[1] * nb_filters * (in_H / s_h) * (in_W / s_w) / 1000 << " kMAC" << std::endl;
+  }
+#endif
+  constexpr int im_nb     = 0;
+  constexpr int half_size = 1;
+  const int     shift     = kernel.quantizer + q_;
+  for (int im_i = start_h + s_h; im_i < in_H - s_h; im_i += s_h)
+  {
+    for (int im_j = start_w + s_w; im_j < in_W - s_w; im_j += s_w)
+    {
+      for (int filter = 0; filter < nb_filters; ++filter)
+      {
+        __m128i s = _mm_setzero_si128();
+        for (int filter_i = -half_size; filter_i <= half_size; ++filter_i)
+        {   // fixed
+          for (int filter_j = -half_size; filter_j <= half_size; ++filter_j)
+          {   // fixed
+            for (int filter_d = 0; filter_d < in_D; filter_d += 8)
+            {
+              const int      ii   = im_i + filter_i;
+              const int      jj   = im_j + filter_j;
+              const int      ki   = half_size + filter_i;
+              const int      kj   = half_size + filter_j;
+              const __m128i *kptr = (const __m128i *) kernel.addr(ki, kj, filter, filter_d);
+              const __m128i  k0   = _mm_load_si128(kptr);   // or loadu ?
+              const __m128i *aptr = (const __m128i *) A.addr(im_nb, ii, jj, filter_d);
+              const __m128i  v0   = _mm_load_si128(aptr);
+
+              const __m128i mad0 = _mm_madd_epi16(k0, v0);   // res in si32
+              s                  = _mm_add_epi32(s, mad0);
+            }
+          }
+        }
+        typename ComputationType<int32_t>::type z = (sum32_int16(s) >> shift);
+        SATURATE(z);
+        out_(im_nb, im_i / s_h, im_j / s_w, filter) = static_cast<int16_t>(z);
+      }
+    }
+  }
 }
 
 template<>

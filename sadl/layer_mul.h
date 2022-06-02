@@ -351,6 +351,9 @@ template<typename T> bool Mul<T>::init(const std::vector<Tensor<T> *> &in)
     if (in[0]->dims().back() != in[1]->dims().back())
       return false;
   }
+  else if (in[0]->dims().size()>=2 && in[1]->size() == in[0]->dims().back()) {
+
+  }
   else
   {
     if (!(in[0]->dims() == in[1]->dims()))

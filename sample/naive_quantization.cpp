@@ -73,6 +73,7 @@ bool toQuantize(sadl::layers::OperationType::Type type) {
             type !=  sadl::layers::OperationType::Expand &&
             type !=  sadl::layers::OperationType::Flatten &&
             type !=  sadl::layers::OperationType::Identity &&
+            type !=  sadl::layers::OperationType::LeakyRelu &&
             type !=  sadl::layers::OperationType::MaxPool &&
             type !=  sadl::layers::OperationType::Relu &&
             type !=  sadl::layers::OperationType::Reshape &&
