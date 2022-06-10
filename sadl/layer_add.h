@@ -44,6 +44,7 @@ public:
   using Layer<T>::out_;   // to avoid this->
   using Layer<T>::initDone_;
 
+
   virtual bool apply(std::vector<Tensor<T> *> &in) override;
   virtual bool init(const std::vector<Tensor<T> *> &in) override;
   virtual bool mutateInput() const override { return true; }
@@ -51,6 +52,7 @@ public:
 protected:
   virtual bool loadInternal(std::istream &file, Version v) override;
 };
+
 
 // TODO : check all dims, check loop for optiz
 template<typename T> bool Add<T>::apply(std::vector<Tensor<T> *> &in)
@@ -61,12 +63,25 @@ template<typename T> bool Add<T>::apply(std::vector<Tensor<T> *> &in)
     std::cerr << "  input aliasing" << std::endl;
     return false;
   }
-  const int shift = in[0]->quantizer - in[1]->quantizer;
+
+
+  int shift0,shift1,qfinal;
+  if (in[0]->quantizer < in[1]->quantizer) {
+    shift0=0;
+    shift1=in[1]->quantizer-in[0]->quantizer;
+    qfinal=in[0]->quantizer;
+  } else {
+    shift0=in[0]->quantizer-in[1]->quantizer;
+    shift1=0;
+    qfinal=in[1]->quantizer;
+  }
   swap(*in[0], out_);
   // adapt output width to second input (which are the bias) in order to be able to rescale as desired the input
-  out_.quantizer = in[1]->quantizer;
-  if (shift < 0)
+  out_.quantizer =qfinal;
+
+  if (shift0>0)
   {
+    const int shift=shift0;
     if (in[0]->dims() == in[1]->dims())
     {
       for (auto it0 = out_.begin(), it1 = in[1]->begin(); it0 != out_.end(); ++it0, ++it1)
@@ -83,95 +98,6 @@ template<typename T> bool Add<T>::apply(std::vector<Tensor<T> *> &in)
     {
       if (in[1]->size() == 1)
       {   // ie in[0]->dims().size() == 1? happen if in[1] is a Const
-        const Tensor<T> &B     = *in[1];
-        const T          value = B[0];
-        for (auto &x: out_)
-        {
-          typename ComputationType<T>::type z = x;
-          ComputationType<T>::shift_left(z, -shift);
-          z += value;
-          COUNTERS(z);
-          SATURATE(z);
-          x = z;
-        }
-      }
-      else if (in[0]->dims().size() == 2)
-      {
-        const Tensor<T> &B = *in[1];
-        assert(B.dims().size() == 1 || (B.dims().size() == 2 && B.dims()[0] == 1));
-        const int N = in[0]->dims()[0];
-        const int H = in[0]->dims()[1];
-        for (int n = 0; n < N; ++n)
-          for (int i = 0; i < H; ++i)
-          {
-            typename ComputationType<T>::type z = out_(n, i);
-            ComputationType<T>::shift_left(z, -shift);
-            z += B[i];
-            COUNTERS(z);
-            SATURATE(z);
-            out_(n, i) = z;
-          }
-      }
-      else if (in[0]->dims().size() == 3)
-      {
-        const Tensor<T> &B = *in[1];
-        const int        N = in[0]->dims()[0];
-        const int        H = in[0]->dims()[1];
-        const int        W = in[0]->dims()[2];
-        assert(B.dims().size() == 1 || (B.dims().size() == 2 && B.dims()[0] == 1));
-        for (int n = 0; n < N; ++n)
-          for (int i = 0; i < H; ++i)
-            for (int j = 0; j < W; ++j)
-            {
-              typename ComputationType<T>::type z = out_(n, i, j);
-              ComputationType<T>::shift_left(z, -shift);
-              z += B[j];
-              COUNTERS(z);
-              SATURATE(z);
-              out_(n, i, j) = z;
-            }
-      }
-      else if (in[0]->dims().size() == 4)
-      {
-        const Tensor<T> &B = *in[1];
-        const int        N = in[0]->dims()[0];
-        const int        H = in[0]->dims()[1];
-        const int        W = in[0]->dims()[2];
-        const int        K = in[0]->dims()[3];
-        assert(B.dims().size() == 1 || (B.dims().size() == 2 && B.dims()[0] == 1));
-        for (int n = 0; n < N; ++n)
-          for (int i = 0; i < H; ++i)
-            for (int j = 0; j < W; ++j)
-              for (int k = 0; k < K; ++k)
-              {
-                typename ComputationType<T>::type z = out_(n, i, j, k);
-                ComputationType<T>::shift_left(z, -shift);
-                z += B[k];
-                COUNTERS(z);
-                SATURATE(z);
-                out_(n, i, j, k) = z;
-              }
-      }
-    }
-  }
-  else
-  {
-    if (in[0]->dims() == in[1]->dims())
-    {
-      for (auto it0 = out_.begin(), it1 = in[1]->begin(); it0 != out_.end(); ++it0, ++it1)
-      {
-        typename ComputationType<T>::type z = *it0;
-        ComputationType<T>::quantize(z, shift);
-        z += *it1;
-        COUNTERS(z);
-        SATURATE(z);
-        *it0 = z;
-      }
-    }
-    else
-    {
-      if (in[1]->size() == 1)
-      {   // for constant
         const Tensor<T> &B     = *in[1];
         const T          value = B[0];
         for (auto &x: out_)
@@ -204,6 +130,97 @@ template<typename T> bool Add<T>::apply(std::vector<Tensor<T> *> &in)
       else if (in[0]->dims().size() == 3)
       {
         const Tensor<T> &B = *in[1];
+        const int        N = in[0]->dims()[0];
+        const int        H = in[0]->dims()[1];
+        const int        W = in[0]->dims()[2];
+        assert(B.dims().size() == 1 || (B.dims().size() == 2 && B.dims()[0] == 1));
+        for (int n = 0; n < N; ++n)
+          for (int i = 0; i < H; ++i)
+            for (int j = 0; j < W; ++j)
+            {
+              typename ComputationType<T>::type z = out_(n, i, j);
+              ComputationType<T>::quantize(z, shift);
+              z += B[j];
+              COUNTERS(z);
+              SATURATE(z);
+              out_(n, i, j) = z;
+            }
+      }
+      else if (in[0]->dims().size() == 4)
+      {
+        const Tensor<T> &B = *in[1];
+        const int        N = in[0]->dims()[0];
+        const int        H = in[0]->dims()[1];
+        const int        W = in[0]->dims()[2];
+        const int        K = in[0]->dims()[3];
+        assert(B.dims().size() == 1 || (B.dims().size() == 2 && B.dims()[0] == 1));
+        for (int n = 0; n < N; ++n)
+          for (int i = 0; i < H; ++i)
+            for (int j = 0; j < W; ++j)
+              for (int k = 0; k < K; ++k)
+              {
+                typename ComputationType<T>::type z = out_(n, i, j, k);
+                ComputationType<T>::quantize(z, shift);
+                z += B[k];
+                COUNTERS(z);
+                SATURATE(z);
+                out_(n, i, j, k) = z;
+              }
+      }
+    }
+  }
+  else // shift1
+  {
+    const int shift=shift1;
+    if (in[0]->dims() == in[1]->dims())
+    {
+      for (auto it0 = out_.begin(), it1 = in[1]->begin(); it0 != out_.end(); ++it0, ++it1)
+      {
+        typename ComputationType<T>::type z = *it1;
+        ComputationType<T>::quantize(z, shift);
+        z += *it0;
+        COUNTERS(z);
+        SATURATE(z);
+        *it0 = z;
+      }
+    }
+    else
+    {
+      if (in[1]->size() == 1)
+      {   // for constant
+        const Tensor<T> &B     = *in[1];
+        T valt=B[0];
+        ComputationType<T>::quantize(valt,shift);
+        const T          value = valt;
+        for (auto &x: out_)
+        {
+          typename ComputationType<T>::type z = x;
+          z += value;
+          COUNTERS(z);
+          SATURATE(z);
+          x = z;
+        }
+      }
+      else if (in[0]->dims().size() == 2)
+      {
+        const Tensor<T> &B = *in[1];
+        assert(B.dims().size() == 1 || (B.dims().size() == 2 && B.dims()[0] == 1));
+        const int N = in[0]->dims()[0];
+        const int H = in[0]->dims()[1];
+        for (int n = 0; n < N; ++n)
+          for (int i = 0; i < H; ++i)
+          {
+            typename ComputationType<T>::type z = B[i];
+            ComputationType<T>::quantize(z,shift);
+            z +=out_(n, i);
+            COUNTERS(z);
+            SATURATE(z);
+            out_(n, i) = z;
+          }
+      }
+      else if (in[0]->dims().size() == 3)
+      {
+        const Tensor<T> &B = *in[1];
         assert(B.dims().size() == 1 || (B.dims().size() == 2 && B.dims()[0] == 1));
         const int N = in[0]->dims()[0];
         const int H = in[0]->dims()[1];
@@ -213,9 +230,9 @@ template<typename T> bool Add<T>::apply(std::vector<Tensor<T> *> &in)
           for (int i = 0; i < H; ++i)
             for (int j = 0; j < W; ++j)
             {
-              typename ComputationType<T>::type z = out_(n, i, j);
-              ComputationType<T>::quantize(z, shift);
-              z += B[j];
+              typename ComputationType<T>::type z = B[j];
+              ComputationType<T>::quantize(z,shift);
+              z +=out_(n, i,j);
               COUNTERS(z);
               SATURATE(z);
               out_(n, i, j) = z;
@@ -235,9 +252,9 @@ template<typename T> bool Add<T>::apply(std::vector<Tensor<T> *> &in)
             for (int j = 0; j < W; ++j)
               for (int k = 0; k < K; ++k)
               {
-                typename ComputationType<T>::type z = out_(n, i, j, k);
-                ComputationType<T>::quantize(z, shift);
-                z += B[k];
+                typename ComputationType<T>::type z = B[k];
+                ComputationType<T>::quantize(z,shift);
+                z +=out_(n, i,j,k);
                 COUNTERS(z);
                 SATURATE(z);
                 out_(n, i, j, k) = z;
@@ -247,6 +264,7 @@ template<typename T> bool Add<T>::apply(std::vector<Tensor<T> *> &in)
   }
   return true;
 }
+
 
 // data in in[0]
 // bias in in[1]
@@ -258,8 +276,8 @@ template<typename T> bool Add<T>::init(const std::vector<Tensor<T> *> &in)
     return false;
   SADL_DBG(std::cout << "  - " << in[0]->dims() << ' ' << in[1]->dims() << std::endl);
 
-  // either broadcast from a tensor of size [n] (use when input is Const) or
-  // [1,n] of add if same dimensions
+  // either broadcast from a tensor of size [n] (use when input is Const) or [1,n]
+  // of add if same dimensions
   if (in[1]->dims().size() == 1)
   {
     if (in[1]->dims()[0] != 1 && in[1]->dims()[0] != in[0]->dims().back())
