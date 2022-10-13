@@ -103,6 +103,7 @@ void quantize(sadl::layers::Layer<T> &layerQ, const sadl::layers::Layer<float> &
     // layers with internal quantizer
     if (layerQ.op() == sadl::layers::OperationType::Conv2D) dynamic_cast<sadl::layers::Conv2D<T> &>(layerQ).q_ = quantizer;
     else if (layerQ.op() == sadl::layers::OperationType::MatMul) dynamic_cast<sadl::layers::MatMul<T> &>(layerQ).q_ = quantizer;
+    else if (layerQ.op() == sadl::layers::OperationType::Conv2DTranspose) dynamic_cast<sadl::layers::Conv2DTranspose<T> &>(layerQ).q_ = quantizer;
     else if (layerQ.op() == sadl::layers::OperationType::Mul) dynamic_cast<sadl::layers::Mul<T> &>(layerQ).q_ = quantizer;
     else if (layerQ.op() == sadl::layers::OperationType::Placeholder) dynamic_cast<sadl::layers::Placeholder<T> &>(layerQ).q_ = quantizer;
     else if (layerQ.op() == sadl::layers::OperationType::Const) {

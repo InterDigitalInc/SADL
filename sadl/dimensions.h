@@ -58,7 +58,7 @@ struct Dimensions
     s_ = s;
   }
   int            size() const { return s_; }
-  int            nbElements() const { return std::accumulate(v_, v_ + s_, 1, std::multiplies<int>()); }
+  int64_t        nbElements() const { return std::accumulate(v_, v_ + s_, (int64_t)1, [](int64_t a,int64_t b) { return a*b; }); }
   int            operator[](int k) const { return v_[k]; }
   int &          operator[](int k) { return v_[k]; }
   iterator       begin() { return v_; }

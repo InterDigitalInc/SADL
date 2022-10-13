@@ -12,6 +12,21 @@ bool sadl::layers::Conv2D<T>::dump(std::ostream &file) {
   return true;
 }
 
+template<typename T> bool sadl::layers::Conv2DTranspose<T>::dump(std::ostream &file)
+{
+  int32_t x = strides_.size();
+  file.write((const char *) &x, sizeof(int32_t));
+  file.write((const char *) strides_.begin(), strides_.size() * sizeof(int32_t));
+  x = pads_.size();
+  file.write((const char *) &x, sizeof(int32_t));
+  file.write((const char *) pads_.begin(), pads_.size() * sizeof(int32_t));
+  x = out_pads_.size();
+  file.write((const char *) &x, sizeof(int32_t));
+  file.write((const char *) out_pads_.begin(), out_pads_.size() * sizeof(int32_t));
+  file.write((const char *) &q_, sizeof(q_));
+  return true;
+}
+
 template <typename T>
 bool sadl::layers::MatMul<T>::dump(std::ostream &file) {
   file.write((const char *)&q_, sizeof(q_));

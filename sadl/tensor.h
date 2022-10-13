@@ -167,7 +167,7 @@ public:
   void fill(value_type value);
 
   const Dimensions &dims() const;
-  int               size() const;
+  int64_t size() const;
 
   const value_type *data() const { return data_.data(); }
   value_type *      data() { return data_.data(); }
@@ -179,7 +179,7 @@ public:
 
   int                  quantizer   = 0;   // for int
   int                  border_skip = 0;
-  static constexpr int kMaxSize    = 640000000;
+  static constexpr int64_t kMaxSize    = 32LL*1024*1024*1024;
 
   Data &getData() { return data_; }
 
@@ -252,15 +252,15 @@ template<typename T> const Dimensions &Tensor<T>::dims() const
   return dims_;
 }
 
-template<typename T> int Tensor<T>::size() const
+template<typename T> int64_t Tensor<T>::size() const
 {
-  return (int) data_.size();
+  return data_.size();
 }
 
 template<typename T> void Tensor<T>::resize(Dimensions d)
 {
   dims_ = d;
-  int m = dims_.nbElements();
+  int64_t m = dims_.nbElements();
   //    for(auto x: dims_) m*=x;
   assert(m < kMaxSize);
   data_.resize(m);
@@ -304,7 +304,7 @@ template<typename T> T &Tensor<T>::operator()(int i, int j)
   assert(i < dims_[0] && i >= 0);
   assert(j < dims_[1] && j >= 0);
 
-  return data_[dims_[1] * i + j];
+  return data_[(int64_t)dims_[1] * i + j];
 }
 
 template<typename T> T Tensor<T>::operator()(int i, int j) const
@@ -313,7 +313,7 @@ template<typename T> T Tensor<T>::operator()(int i, int j) const
   assert(i < dims_[0] && i >= 0);
   assert(j < dims_[1] && j >= 0);
 
-  return data_[dims_[1] * i + j];
+  return data_[(int64_t)dims_[1] * i + j];
 }
 
 template<typename T> bool Tensor<T>::in(int i, int j) const
@@ -328,7 +328,7 @@ template<typename T> T &Tensor<T>::operator()(int i, int j, int k)
   assert(j < dims_[1] && j >= 0);
   assert(k < dims_[2] && k >= 0);
 
-  return data_[dims_[2] * (dims_[1] * i + j) + k];
+  return data_[(int64_t)dims_[2] * (dims_[1] * i + j) + k];
 }
 
 template<typename T> T Tensor<T>::operator()(int i, int j, int k) const
@@ -338,7 +338,7 @@ template<typename T> T Tensor<T>::operator()(int i, int j, int k) const
   assert(j < dims_[1] && j >= 0);
   assert(k < dims_[2] && k >= 0);
 
-  return data_[dims_[2] * (dims_[1] * i + j) + k];
+  return data_[(int64_t)dims_[2] * (dims_[1] * i + j) + k];
 }
 
 template<typename T> bool Tensor<T>::in(int i, int j, int k) const
@@ -354,7 +354,7 @@ template<typename T> T &Tensor<T>::operator()(int i, int j, int k, int l)
   assert(k < dims_[2] && k >= 0);
   assert(l < dims_[3] && l >= 0);
 
-  return data_[dims_[3] * (dims_[2] * (dims_[1] * i + j) + k) + l];
+  return data_[(int64_t)dims_[3] * (dims_[2] * (dims_[1] * i + j) + k) + l];
 }
 
 template<typename T> bool Tensor<T>::in(int i, int j, int k, int l) const
@@ -369,7 +369,7 @@ template<typename T> const T *Tensor<T>::addr(int i, int j, int k, int l) const
   assert(j < dims_[1] && j >= 0);
   assert(k < dims_[2] && k >= 0);
   assert(l < dims_[3] && l >= 0);
-  return &data_[dims_[3] * (dims_[2] * (dims_[1] * i + j) + k) + l];
+  return &data_[(int64_t)dims_[3] * (dims_[2] * (dims_[1] * i + j) + k) + l];
 }
 
 template<typename T> T Tensor<T>::operator()(int i, int j, int k, int l) const
@@ -379,7 +379,7 @@ template<typename T> T Tensor<T>::operator()(int i, int j, int k, int l) const
   assert(j < dims_[1] && j >= 0);
   assert(k < dims_[2] && k >= 0);
   assert(l < dims_[3] && l >= 0);
-  return data_[dims_[3] * (dims_[2] * (dims_[1] * i + j) + k) + l];
+  return data_[(int64_t)dims_[3] * (dims_[2] * (dims_[1] * i + j) + k) + l];
 }
 
 template<typename T> void Tensor<T>::fill(value_type value)

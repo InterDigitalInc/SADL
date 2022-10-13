@@ -66,7 +66,8 @@ struct OperationType
     Flatten            = 16,
     Shape              = 17,
     Expand             = 18,
-    OperationTypeCount = 19
+    Conv2DTranspose    = 19,
+    OperationTypeCount = 20
   };
 };
 

@@ -37,6 +37,7 @@
 #include "layer_const.h"
 #include "layer_identity.h"
 #include "layer_conv2d.h"   // before matmul to get def  of sum8_float
+#include "layer_conv2dtranspose.h"
 #include "layer_matmul.h"
 #include "layer_biasadd.h"
 #include "layer_add.h"
@@ -74,6 +75,7 @@ inline std::string opName(const OperationType::Type op)
     DIRTYCASEPRINT(Reshape);
     DIRTYCASEPRINT(Relu);
     DIRTYCASEPRINT(Conv2D);
+    DIRTYCASEPRINT(Conv2DTranspose);
     DIRTYCASEPRINT(Add);
     DIRTYCASEPRINT(Mul);
     DIRTYCASEPRINT(Concat);

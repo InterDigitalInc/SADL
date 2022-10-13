@@ -64,6 +64,9 @@ protected:
   void conv2d(int nb_filters, int in_H, int in_W, int in_D, int start_h, int start_w, int s_h, int s_w, Tensor<T> &out_, const Tensor<T> &A,
               const Tensor<T> &kernel);
 
+  template<int s_h, int s_w>
+  void conv2d_5x5_s(const Tensor<T> &A, const Tensor<T> &kernel);
+
   // 1x1
   template<int s_h, int s_w>
   void conv2d_1x1_s_dispatch(int nb_filters, int in_H, int in_W, int in_D, int start_h, int start_w, Tensor<T> &out_, const Tensor<T> &A,
@@ -156,6 +159,11 @@ template<typename T> bool Conv2D<T>::apply(std::vector<Tensor<T> *> &in)
   {
     return apply_s<2, 1>(A, kernel);
   }
+  else if (strides_[1] == 2 && strides_[2] == 2 && kernel.dims()[0] == 5 && kernel.dims()[1] == 5 )
+  {
+      conv2d_5x5_s<2,2>(A,kernel);
+      return true;
+  }
   else if (strides_[1] == 2 && strides_[2] == 2)
   {
     return apply_s<2, 2>(A, kernel);
@@ -230,10 +238,10 @@ template<typename T> bool Conv2D<T>::init(const std::vector<Tensor<T> *> &in)
     return false;
   if ((in[1]->dims()[0]) % 2 == 0)
     return false;
+  const bool tempo_ok=in[1]->dims()[0]==5&&strides_[1]==2;
 
   // The spatial dimensions of a convolutional kernel must be either
-  // 1x1 or 3x3.
-  if (in[1]->dims()[0] / 2 > 1)
+  if (in[1]->dims()[0] / 2 > 1 && !tempo_ok)
     return false;
   if (in[0]->dims()[0] != 1)
     return false;
@@ -362,6 +370,64 @@ void Conv2D<T>::conv2d(int nb_filters, int in_H, int in_W, int in_D, int start_h
     }
   }
 }
+
+// tempo
+template<typename T>
+template<int s_h,int s_w>
+void Conv2D<T>::conv2d_5x5_s(const Tensor<T> &A,const Tensor<T> &kernel)
+{
+  int       in_H{ A.dims()[1] };
+  int       in_W{ A.dims()[2]  };
+  const int in_D{ A.dims()[3] };
+  const int nb_filters{ kernel.dims()[2] };
+  constexpr int half_size{ 5 / 2 };
+  const int top{ pads_[0] };
+  const int left{ pads_[1] };
+  int       start_h{ half_size - top -2};
+  int       start_w{ half_size - left -2};
+  constexpr int im_nb = 0;
+  const int     shift = kernel.quantizer + q_;
+#if DEBUG_SIMD && __AVX2__
+  std::cout << "\n[WARN] debug generic version conv inD=" << in_D << " outD=" << nb_filters << " s=[" << s_w << ' ' << s_h << "] " << in_H << 'x' << in_W << " "
+            << in_D * kernel.dims()[0] * kernel.dims()[1] * nb_filters * (in_H / s_h) * (in_W / s_w) / 1000 << " kMAC" << std::endl;
+#endif
+
+  for (int filter = 0; filter < nb_filters; ++filter)
+  {
+    for (int im_i = start_h + s_h; im_i < in_H  /*- s_h*/; im_i += s_h)
+    {
+      for (int im_j = start_w + s_w; im_j < in_W /*- s_w*/; im_j += s_w)
+      {
+        typename ComputationType<T>::type x = 0;
+        for (int filter_i = -half_size; filter_i <= half_size; ++filter_i)
+        {
+          // fixed
+          for (int filter_j = -half_size; filter_j <= half_size; ++filter_j)
+          {
+            // fixed
+            for (int filter_d = 0; filter_d < in_D; ++filter_d)
+            {
+              int ii = im_i + filter_i;
+              int jj = im_j + filter_j;
+              int ki = half_size + filter_i;
+              int kj = half_size + filter_j;
+              if (A.in(im_nb, ii, jj, filter_d))
+              {
+                x += (typename ComputationType<T>::type) A(im_nb, ii, jj, filter_d) * kernel(ki, kj, filter, filter_d);
+                COUNTERS_MAC(kernel(ki, kj, filter, filter_d));
+              }
+            }
+          }
+        }
+        ComputationType<T>::quantize(x, shift);
+        COUNTERS(x);
+        SATURATE(x);
+        out_(im_nb, im_i / s_h, im_j / s_w, filter) = static_cast<T>(x);
+      }
+    }
+  }
+}
+
 
 // ////////////////////////////////////////////////////////////////////////////////////////////////////////
 // 1x1

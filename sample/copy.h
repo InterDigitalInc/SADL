@@ -20,6 +20,11 @@ bool copy(const sadl::layers::Layer<float> &layer, sadl::layers::Layer<T> &layer
       dynamic_cast<sadl::layers::Conv2D<T> &>(layerQ).strides_=dynamic_cast<const sadl::layers::Conv2D<float> &>(layer).strides_;
       dynamic_cast<sadl::layers::Conv2D<T> &>(layerQ).pads_=dynamic_cast<const sadl::layers::Conv2D<float> &>(layer).pads_;
       break;
+    case sadl::layers::OperationType::Conv2DTranspose:
+      dynamic_cast<sadl::layers::Conv2DTranspose<T> &>(layerQ).strides_=dynamic_cast<const sadl::layers::Conv2DTranspose<float> &>(layer).strides_;
+      dynamic_cast<sadl::layers::Conv2DTranspose<T> &>(layerQ).pads_=dynamic_cast<const sadl::layers::Conv2DTranspose<float> &>(layer).pads_;
+      dynamic_cast<sadl::layers::Conv2DTranspose<T> &>(layerQ).out_pads_=dynamic_cast<const sadl::layers::Conv2DTranspose<float> &>(layer).out_pads_;
+      break;
     case sadl::layers::OperationType::Copy: break;
     case sadl::layers::OperationType::Identity: break;
     case sadl::layers::OperationType::LeakyRelu: break;

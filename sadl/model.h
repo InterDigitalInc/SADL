@@ -116,6 +116,7 @@ template<typename T> std::unique_ptr<layers::Layer<T>> createLayer(int32_t id, l
     return std::unique_ptr<layers::Layer<T>>(new layers::BiasAdd<T>{ id, op });
     break;
   case layers::OperationType::Conv2D: return std::unique_ptr<layers::Layer<T>>(new layers::Conv2D<T>{ id, op }); break;
+  case layers::OperationType::Conv2DTranspose: return std::unique_ptr<layers::Layer<T>>(new layers::Conv2DTranspose<T>{ id, op }); break;
   case layers::OperationType::Add: return std::unique_ptr<layers::Layer<T>>(new layers::Add<T>{ id, op }); break;
   case layers::OperationType::Relu: return std::unique_ptr<layers::Layer<T>>(new layers::Relu<T>{ id, op }); break;
   case layers::OperationType::MaxPool:
@@ -331,10 +332,10 @@ template<typename T> bool Model<T>::init(std::vector<Tensor<T>> &in)
       }
       std::vector<Tensor<T> *> v = { &in[placeholders_cnt] };
       ++placeholders_cnt;
+      data_[layer_cnt].layer->init(v);
       SADL_DBG(std::cout << "[INFO] init layer " << data_[layer_cnt].layer->id() << ' '
                          << layers::opName((layers::OperationType::Type) (data_[layer_cnt].layer->op())) << ' '
-                         << data_[layer_cnt].layer->name() << std::endl);
-      data_[layer_cnt].layer->init(v);
+                         << data_[layer_cnt].layer->name() << " out="<<data_[layer_cnt].layer->out_.dims()<<std::endl);
     }
   }
   if (!ok)
@@ -375,10 +376,13 @@ template<typename T> bool Model<T>::init(std::vector<Tensor<T>> &in)
         return false;
       }
     }
-    SADL_DBG(std::cout << "[INFO] init layer " << data_[layer_cnt].layer->id() << ' '
-                       << layers::opName((layers::OperationType::Type) (data_[layer_cnt].layer->op())) << " "
-                       << data_[layer_cnt].layer->name() << std::endl);
     ok &= data_[layer_cnt].layer->init(data_[layer_cnt].inputs);
+    SADL_DBG(std::cout << "[INFO] init layer " << data_[layer_cnt].layer->id() << ' '
+                       << layers::opName((layers::OperationType::Type) (data_[layer_cnt].layer->op())) << ' '
+                       << data_[layer_cnt].layer->name()<< " in=[");
+    SADL_DBG(for(auto ii: data_[layer_cnt].layer->inputsId()) std::cout<<ii<<' ');
+    SADL_DBG(std::cout << "] out="<<data_[layer_cnt].layer->out_.dims()<<std::endl);
+
     if (!ok)
     {
       std::cerr << "[ERROR] init layer " << data_[layer_cnt].layer->id() << " " << data_[layer_cnt].layer->name()
@@ -411,16 +415,18 @@ template<typename T> bool Model<T>::apply(std::vector<Tensor<T>> &in)
       std::vector<Tensor<T> *> v = { &in[placeholders_cnt] };
       ++placeholders_cnt;
       ok &= data_[layer_cnt].layer->apply(v);
+#if DEBUG_VALUES  || DEBUG_MODEL
+      std::cout << "[INFO] " << data_[layer_cnt].layer->id() << " Placeholder (" << data_[layer_cnt].layer->name() << "): ";
+       if (!std::is_same<T,float>::value) {
+           std::cout << "q=" << data_[layer_cnt].layer->out_.quantizer<< " ";
+       }
+#endif
 #if DEBUG_VALUES
       if (std::is_same<T,float>::value) {
-          std::cout << "[INFO] " << data_[layer_cnt].layer->id() << " PlaceHolder "
-                    << " ("<<data_[layer_cnt].layer->name()<<"):\t[";
           for (int k = 0; k < 8 && k < (int) data_[layer_cnt].layer->out_.size(); ++k)
             std::cout << data_[layer_cnt].layer->out_[k]  << ' ';
           std::cout << "]\t" ;
       } else {
-      std::cout << "[INFO] " << data_[layer_cnt].layer->id() << " " << data_[layer_cnt].layer->name()
-                    << " (PlaceHolder): q=" << data_[layer_cnt].layer->out_.quantizer << " [";
       float Q = (1 << data_[layer_cnt].layer->out_.quantizer);
       for (int k = 0; k < 8 && k < (int) data_[layer_cnt].layer->out_.size(); ++k)
         std::cout << data_[layer_cnt].layer->out_[k] / Q << ' ';
@@ -450,9 +456,11 @@ template<typename T> bool Model<T>::apply(std::vector<Tensor<T>> &in)
       assert(L.layer->computed_);
     }
 #endif
-#if DEBUG_VALUES
+#if DEBUG_VALUES || DEBUG_MODEL
     std::cout << "[INFO] " << data_[layer_cnt].layer->id() << " " <<  opName(data_[layer_cnt].layer->op()) << " ("
               << data_[layer_cnt].layer->name() << "):\t";
+#endif
+#if DEBUG_VALUES
     if (data_[layer_cnt].inputs.size()) {
         std::cout<<"inputs={";
     }
@@ -531,7 +539,7 @@ template<typename T> typename Model<T>::Stat Model<T>::printOverflow(bool printi
                 << std::endl;
     }
   }
-#if DEBUG_SIMD && __AVX2__
+#if DEBUG_COUNTERS && __AVX2__
   std::cout<<"[WARN] counters should not be used in SIMD mode, please use scalar mode for reliable results"<<std::endl;
   stat.op     = 0;
   stat.mac    = 0;
