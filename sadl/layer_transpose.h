@@ -60,13 +60,14 @@ template<typename T> bool Transpose<T>::apply(std::vector<Tensor<T> *> &in)
                                 // in[0]->dims()[1], in[0]->dims()[2]};
   const auto &A  = *in[0];
   Dimensions  Ad = A.dims();
-    if (d.size() == 1) {
+  if (d.size() == 1)
+  {
     swapData(*in[0], out_);
-    }
+  }
   else if (d.size() == 4)
   {
-        out_.quantizer=in[0]->quantizer;
-          // border to skip??
+    out_.quantizer = in[0]->quantizer;
+    // border to skip??
     std::array<int, 4>   index;
     std::array<int *, 4> index_mapped;
     for (int k = 0; k < 4; ++k)
@@ -84,8 +85,8 @@ template<typename T> bool Transpose<T>::apply(std::vector<Tensor<T> *> &in)
   }
   else if (d.size() == 6)
   {   // very naive version
-        out_.quantizer=in[0]->quantizer;
-          // border to skip??
+    out_.quantizer = in[0]->quantizer;
+    // border to skip??
     std::array<int, 6>   index;
     std::array<int *, 6> index_mapped;
     for (int k = 0; k < 6; ++k)
@@ -122,23 +123,24 @@ template<typename T> bool Transpose<T>::init(const std::vector<Tensor<T> *> &in)
   // second layer is always reshape prms: value as int inside the tensor
   if (in[1]->dims().size() != 1)
     return false;
-  if (!std::is_same<float,T>::value&&in[1]->quantizer!=0) {
-      std::cerr << "[ERROR] quantizer on reshape dimensions data layer" << std::endl;
-      return false;
+  if (!std::is_same<float, T>::value && in[1]->quantizer != 0)
+  {
+    std::cerr << "[ERROR] quantizer on reshape dimensions data layer" << std::endl;
+    return false;
   }
   Dimensions dim;
-  dim.resize(in[1]->size());
+  dim.resize((int) in[1]->size());
   for (int k = 0; k < in[1]->size(); ++k)
   {
-    if ((*in[1]) (k) == -1)
+    if ((*in[1])(k) == -1)
     {   // keep dim of org
       dim[k]   = in[0]->dims()[k];
       perm_[k] = k;
     }
     else
     {
-      dim[k]   = in[0]->dims()[(int) ((*in[1]) (k))];
-      perm_[k] = (int) ((*in[1]) (k));
+      dim[k]   = in[0]->dims()[(int) ((*in[1])(k))];
+      perm_[k] = (int) ((*in[1])(k));
     }
   }
   if (dim.nbElements() != in[0]->dims().nbElements())

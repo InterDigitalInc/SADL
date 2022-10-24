@@ -170,7 +170,7 @@ template<typename T> template<int NN> bool Mul<T>::apply_same_dim(std::vector<Te
 #endif   // SIMD
   // for (auto it0 = out_.begin(), it1 = in[1]->begin(); it0 != out_.end(); ++it0, ++it1) {
   const auto &B = *in[1];
-  const int   N = (out_.size() / NN) * NN;
+  const auto N = (out_.size() / NN) * NN;
   for (int k = 0; k < N; ++k)
   {
     typename ComputationType<T>::type x = out_[k];
@@ -192,7 +192,7 @@ template<typename T> template<int NN> bool Mul<T>::apply_singleton(std::vector<T
   std::cout << "[WARN] generic version mul singleton (but likely vectorized) " << in[0]->dims() << ' ' << in[1]->dims() << std::endl;
 #endif   // SIMD
   const T   value{ B[0] };
-  const int N = (out_.size() / NN) * NN;
+  const auto N = (out_.size() / NN) * NN;
   //  for (auto it0 = out_.begin(); it0 != out_.end(); ++it0) {
   for (int k = 0; k < N; ++k)
   {
